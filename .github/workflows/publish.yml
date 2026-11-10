@@ -1,40 +1,74 @@
-name: Publish to PyPI
+name: Build or publish to PyPI
 
 on:
-  release:
-    types: [published]
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Build artifacts only, or publish them to PyPI
+        type: choice
+        required: true
+        default: build-only
+        options:
+          - build-only
+          - publish
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          python-version: '3.11'
-      - run: python -m unittest discover tests
-      - run: python -m pip install build twine
-      - run: python -m build
-      - run: python -m twine check dist/*
-      - uses: actions/upload-artifact@v4
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          name: distributions
+          python-version: "3.14"
+      - name: Test
+        run: python -B -m unittest discover tests
+      - name: Build and check wheel and source distribution
+        run: |
+          python -m pip install build twine "setuptools>=77"
+          python -m build
+          python -m twine check --strict dist/*
+          sha256sum dist/*
+      - name: Test the installed wheel outside the checkout
+        run: |
+          wheel=(dist/*.whl)
+          python -m venv "$RUNNER_TEMP/wheel"
+          "$RUNNER_TEMP/wheel/bin/python" -m pip install "${wheel[0]}"
+          cd "$RUNNER_TEMP"
+          export HOME="$RUNNER_TEMP/home" && mkdir -p "$HOME"
+          "$RUNNER_TEMP/wheel/bin/ai-limits" --version
+          "$RUNNER_TEMP/wheel/bin/ai-limits"
+          "$RUNNER_TEMP/wheel/bin/ai-limits" json > /dev/null
+      - name: Store the checked distributions
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ai-limits-dist
           path: dist/*
+          if-no-files-found: error
 
   publish:
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' && github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/p/ai-limits
+      url: https://pypi.org/project/ai-limits/
     permissions:
       id-token: write
     steps:
-      - uses: actions/download-artifact@v4
+      - name: Download this run's checked distributions
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: distributions
+          artifact-ids: ${{ needs.build.outputs.artifact-id }}
+          merge-multiple: true
           path: dist/
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - name: Publish to PyPI with Trusted Publishing
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2

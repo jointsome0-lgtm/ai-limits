@@ -147,9 +147,10 @@ python3 -m unittest discover tests
 python3 -m ai_limits json
 ```
 
-Release automation uses PyPI Trusted Publishing. Before publishing a GitHub release, configure
-the PyPI publisher for owner `jointsome0-lgtm`, repository `ai-limits`, workflow `publish.yml`,
-and GitHub environment `pypi` (use a pending publisher for the first release). No API token is needed.
+Releases go to PyPI through Trusted Publishing: run the **Build or publish to PyPI** workflow
+(`publish.yml`) on `main` with mode `publish`; `build-only` just builds and checks the packages.
+The PyPI publisher is owner `jointsome0-lgtm`, repository `ai-limits`, workflow `publish.yml`,
+environment `pypi`. No API token is needed.
 
 The GNOME extension only runs `ai-limits json` and draws the result; adding a provider means one
 module in `ai_limits/providers/`.
