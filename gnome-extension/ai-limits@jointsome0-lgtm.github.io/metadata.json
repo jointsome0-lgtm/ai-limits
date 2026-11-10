@@ -1,0 +1,8 @@
+{
+  "uuid": "ai-limits@jointsome0-lgtm.github.io",
+  "name": "AI Limits",
+  "description": "Claude and Codex subscription usage, with multiple accounts. Reads the local ai-limits core; no direct network or credential access.",
+  "shell-version": ["45", "46", "47", "48", "49"],
+  "settings-schema": "org.gnome.shell.extensions.ai-limits",
+  "version": 1
+}

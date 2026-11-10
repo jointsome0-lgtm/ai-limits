@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "generated_at": 1793107715,
+  "network": {"enabled": true, "interface": "tun0", "vpn_ok": true},
+  "accounts": [
+    {"id": "claude-4f1c2a9e7b30", "provider": "claude", "label": "Claude Max", "home": "/home/user/.claude", "plan": "max",
+     "source": "network", "updated_at": 1793107625, "status": "ok", "message": null, "recommended": false,
+     "limits": [
+       {"id": "5h", "label": "Session (5h)", "used_percent": 42.0, "resets_at": 1793115515, "window_minutes": 300, "estimated": false},
+       {"id": "7d", "label": "Week", "used_percent": 18.0, "resets_at": 1793550715, "window_minutes": 10080, "estimated": false},
+       {"id": "7d:fable", "label": "Fable (week)", "used_percent": 0.0, "resets_at": 1793550715, "window_minutes": 10080, "estimated": false}
+     ]},
+    {"id": "codex-1a2b3c4d5e6f", "provider": "codex", "label": "Codex · personal", "home": "/home/user/.codex", "plan": "pro",
+     "source": "sessions", "updated_at": 1793104115, "status": "ok", "message": null, "recommended": true,
+     "limits": [
+       {"id": "7d", "label": "Week", "used_percent": 19.0, "resets_at": 1793357715, "window_minutes": 10080, "estimated": false}
+     ]},
+    {"id": "codex-9f8e7d6c5b4a", "provider": "codex", "label": "Codex · work", "home": "/home/user/.codex-work", "plan": "pro",
+     "source": "sessions", "updated_at": 1793077715, "status": "stale", "message": "last seen 8h ago", "recommended": false,
+     "limits": [
+       {"id": "7d", "label": "Week", "used_percent": 91.0, "resets_at": 1793114915, "window_minutes": 10080, "estimated": false}
+     ]}
+  ]
+}
