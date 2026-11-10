@@ -1,6 +1,7 @@
 """ai-limits: AI subscription usage limits, offline by default.
 
   ai-limits                 human-readable summary
+  ai-limits --version       installed version
   ai-limits json            state JSON (docs/state-schema.md), also saved to ~/.cache/ai-limits/state.json
   ai-limits accounts        configured / detected accounts
   ai-limits tap claude      for Claude Code's statusLine: saves rate_limits from stdin, passes stdin through
@@ -9,13 +10,14 @@
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import sys
 import time
 from datetime import datetime
 
-from . import config
+from . import __version__, config
 from .core import build_state, format_duration, write_state
 from .model import normalise_home
 from .providers import claude
@@ -24,9 +26,16 @@ DIM, RESET = "\033[2m", "\033[0m"
 
 
 def main(argv: list[str] | None = None) -> int:
+    # JSON and Claude's status-line protocol are UTF-8, including redirected Windows streams.
+    for stream in (sys.stdout, sys.stderr):
+        if isinstance(stream, io.TextIOWrapper):
+            stream.reconfigure(encoding="utf-8")
     args = sys.argv[1:] if argv is None else argv
     cmd = args[0] if args else "show"
 
+    if args == ["--version"]:
+        print(f"ai-limits {__version__}")
+        return 0
     if cmd in ("-h", "--help", "help"):
         print(__doc__.strip())
         return 0
@@ -65,6 +74,8 @@ def _tap(args: list[str]) -> int:
     if not args or args[0] != "claude":
         print("usage: ai-limits tap claude [--print]", file=sys.stderr)
         return 2
+    if isinstance(sys.stdin, io.TextIOWrapper):
+        sys.stdin.reconfigure(encoding="utf-8")
     raw = sys.stdin.read()
     claude.tap_from_stdin(normalise_home(os.environ.get("CLAUDE_CONFIG_DIR") or "~/.claude"), raw)
     if "--print" in args:
@@ -110,6 +121,9 @@ def _bar(pct: float, width: int = 12) -> str:
 def _reset_text(resets_at: int | None, now: int) -> str:
     if not resets_at:
         return ""
-    when = datetime.fromtimestamp(resets_at)
+    try:
+        when = datetime.fromtimestamp(resets_at)
+    except (ValueError, OverflowError, OSError):
+        return "reset time out of range"
     same_day = when.date() == datetime.fromtimestamp(now).date()
     return f"↻ {when.strftime('%H:%M' if same_day else '%a %H:%M')} (in {format_duration(resets_at - now)})"

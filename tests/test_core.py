@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,6 +13,7 @@ from ai_limits.providers import claude
 
 NOW = 1_793_107_651
 TOKEN = "sk-ant-oat01-" + "x" * 40  # fake, but the right shape
+linux_network = unittest.skipUnless(sys.platform == "linux", "network mode is Linux-only")
 
 
 def codex_record(ts, used, resets, limit_id="codex", window=10080):
@@ -22,9 +24,14 @@ def codex_record(ts, used, resets, limit_id="codex", window=10080):
 
 class Env(unittest.TestCase):
     def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp())
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.tmp = Path(temporary.name).resolve()
         patcher = mock.patch.dict(os.environ, {"XDG_CACHE_HOME": str(self.tmp / "cache"),
-                                               "XDG_CONFIG_HOME": str(self.tmp / "cfg")})
+                                               "XDG_CONFIG_HOME": str(self.tmp / "cfg"),
+                                               "HOME": str(self.tmp), "USERPROFILE": str(self.tmp),
+                                               "CLAUDE_CONFIG_DIR": str(self.tmp / ".claude"),
+                                               "CODEX_HOME": str(self.tmp / ".codex")})
         patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -127,6 +134,7 @@ class ClaudeTest(Env):
         conn.assert_not_called()
         self.assertEqual(acc["status"], "vpn_off")
 
+    @linux_network
     def test_route_through_other_interface_is_refused(self):
         with mock.patch("os.path.exists", return_value=True), \
              mock.patch("socket.getaddrinfo", return_value=[(None, None, None, None, ("1.2.3.4", 443))]), \
@@ -173,6 +181,7 @@ class ClaudeTest(Env):
                 netguard.get_json_authenticated("h", "/u", {"Authorization": "x"}, "tun0", probe_expect=None)
         get.assert_not_called()
 
+    @linux_network
     def test_sockets_are_bound_to_the_vpn_interface(self):
         conn = netguard._PinnedHTTPSConnection("h", "1.2.3.4", "definitely-not-an-iface0", timeout=1)
         with mock.patch("socket.socket.connect") as connect:
@@ -187,6 +196,7 @@ class ClaudeTest(Env):
         net = config.NetworkConfig(enabled=True, require_interface="tun0")
         return self.cfg(AccountConfig("claude", "Claude", str(home)), network=net)
 
+    @linux_network
     def test_malformed_token_is_never_sent_or_echoed(self):
         bad = TOKEN + "\nX-Evil: 1"
         with mock.patch.object(netguard, "get_json_authenticated") as get:
@@ -194,6 +204,7 @@ class ClaudeTest(Env):
         get.assert_not_called()
         self.assertNotIn(TOKEN, json.dumps(state))
 
+    @linux_network
     def test_request_errors_do_not_leak_the_token(self):
         with mock.patch.object(netguard, "get_json_authenticated", side_effect=ValueError(f"Invalid header b'Bearer {TOKEN}'")):
             state = build_state(self._net_account(TOKEN), NOW)
@@ -201,6 +212,7 @@ class ClaudeTest(Env):
         self.assertNotIn(TOKEN, json.dumps(state))
         self.assertNotIn(TOKEN, (self.tmp / "cache/ai-limits/net").joinpath(f"{state['accounts'][0]['id']}.json").read_text())
 
+    @linux_network
     def test_vpn_ok_reflects_this_run_only(self):
         with mock.patch.object(netguard, "check_route", return_value="1.2.3.4"), \
              mock.patch.object(netguard, "_get", side_effect=[(401, b'{"error": {"type": "authentication_error"}}'), (200, b'{"limits": []}')]):
@@ -230,6 +242,7 @@ class ClaudeTest(Env):
         self.assertEqual(acc["updated_at"], NOW - 86400)
         self.assertEqual(acc["status"], "stale")
 
+    @linux_network
     def test_nan_sibling_does_not_wipe_valid_limits(self):
         with mock.patch.object(netguard, "get_json_authenticated", return_value={"limits": [
                 {"kind": "session", "percent": 80, "resets_at": NOW + 600},
@@ -239,12 +252,14 @@ class ClaudeTest(Env):
         # and the cached copy reads back the same
         self.assertEqual([lim["id"] for lim in build_state(self._net_account(TOKEN), NOW + 10)["accounts"][0]["limits"]], ["5h"])
 
+    @linux_network
     def test_http_parser_errors_do_not_leak_the_token(self):
         import http.client
         with mock.patch.object(netguard, "get_json_authenticated", side_effect=http.client.BadStatusLine(f"Bearer {TOKEN}")):
             state = build_state(self._net_account(TOKEN), NOW)
         self.assertNotIn(TOKEN, json.dumps(state))
 
+    @linux_network
     def test_malformed_probe_counts_as_failed_check(self):
         import http.client
         with mock.patch.object(netguard, "check_route", return_value="1.2.3.4"), \
@@ -275,7 +290,7 @@ class LeakTest(Env):
         from ai_limits import cli
         with mock.patch.object(cli, "build_state") as build, mock.patch.object(config, "load") as load, \
              mock.patch("sys.stderr"):
-            for argv in (["--version"], ["--offline"], ["jsn"], ["json", "extra"]):
+            for argv in (["--version", "extra"], ["--offline"], ["jsn"], ["json", "extra"]):
                 self.assertEqual(cli.main(argv), 2, argv)
         build.assert_not_called()
         load.assert_not_called()
@@ -284,6 +299,7 @@ class LeakTest(Env):
         with mock.patch.dict(os.environ, {"SSLKEYLOGFILE": str(self.tmp / "keys.log")}):
             self.assertIsNone(netguard._tls_context().keylog_filename)
 
+    @linux_network
     def test_route_check_runs_with_minimal_env(self):
         with mock.patch("os.path.exists", return_value=True), \
              mock.patch("socket.getaddrinfo", return_value=[(None, None, None, None, ("1.2.3.4", 443))]), \
@@ -301,6 +317,7 @@ class LeakTest(Env):
         self.assertNotIn("future_field", text)
         self.assertNotIn("other", text)
 
+    @unittest.skipUnless(os.name == "posix", "Windows uses inherited ACLs, not POSIX permissions")
     def test_cache_files_and_dirs_are_private(self):
         from ai_limits.providers import write_json
         target = self.tmp / "cache/ai-limits/net/x.json"
@@ -309,6 +326,7 @@ class LeakTest(Env):
         self.assertEqual(target.parent.stat().st_mode & 0o777, 0o700)
         self.assertEqual([p.name for p in target.parent.iterdir()], ["x.json"])  # no temp leftovers
 
+    @linux_network
     def test_concurrent_runs_fetch_once(self):
         import fcntl
         cfg = ClaudeTest._net_account(self, TOKEN)
@@ -321,6 +339,7 @@ class LeakTest(Env):
             build_state(cfg, NOW)
         get.assert_not_called()
 
+    @linux_network
     def test_attempt_is_recorded_before_the_request(self):
         cfg = ClaudeTest._net_account(self, TOKEN)
         seen = {}

@@ -27,10 +27,32 @@ network mode refuses to send anything unless the route goes through the VPN inte
 ## Install
 
 ```sh
-uv tool install git+https://github.com/<you>/ai-limits     # or: pipx install …
-ai-limits                                                  # check it sees your accounts
-./gnome-extension/install.sh                               # GNOME Shell 45–49
+uv tool install ai-limits        # or: pipx install ai-limits
+ai-limits                       # check it sees your accounts
 ```
+
+For the optional GNOME Shell 45–49 extension, install from a checkout (it is not in the wheel):
+
+```sh
+git clone https://github.com/jointsome0-lgtm/ai-limits.git
+cd ai-limits
+./gnome-extension/install.sh
+```
+
+### Platforms
+
+Python **3.11–3.14**, with no runtime dependencies. On distributions with an older system Python
+(e.g. Ubuntu 22.04 ships 3.10), use `uv tool install ai-limits`: uv fetches a suitable Python itself.
+**Linux** supports the offline CLI,
+Claude tap, and VPN-guarded network mode (`ip` from iproute2 is required for network mode).
+**macOS and Windows** support the offline CLI and Claude tap; network mode refuses to run
+there, before reading credentials or looking up the host. The GNOME extension is Linux-only.
+
+Config and cache use `~/.config/ai-limits` and `~/.cache/ai-limits` on all platforms, unless
+`XDG_CONFIG_HOME` / `XDG_CACHE_HOME` override them. On Windows, `~` is the user profile directory
+and cache privacy relies on Windows ACLs; on POSIX, directories/files use 0700/0600.
+Files and CLI streams use UTF-8. Reset times display in the local timezone; timestamps without
+an explicit timezone are interpreted as UTC.
 
 ## Where the numbers come from
 
@@ -76,7 +98,7 @@ home     = "~/.codex-work"
 Without a config file, `~/.claude` and `~/.codex` are picked up automatically. With two or more
 accounts of one provider, the one with the most headroom gets a ★ and is the one shown in the panel.
 
-## Network mode (only behind a VPN)
+## Network mode (Linux only, behind a VPN)
 
 ```toml
 [network]
@@ -112,6 +134,7 @@ or block them when the proxy is down (a kill switch).
 
 ```
 ai-limits               summary
+ai-limits --version     installed version
 ai-limits json          state for UIs (docs/state-schema.md), also written to ~/.cache/ai-limits/state.json
 ai-limits accounts      configured / detected accounts
 ai-limits tap claude    status line helper (see above)
@@ -123,6 +146,10 @@ ai-limits tap claude    status line helper (see above)
 python3 -m unittest discover tests
 python3 -m ai_limits json
 ```
+
+Release automation uses PyPI Trusted Publishing. Before publishing a GitHub release, configure
+the PyPI publisher for owner `jointsome0-lgtm`, repository `ai-limits`, workflow `publish.yml`,
+and GitHub environment `pypi` (use a pending publisher for the first release). No API token is needed.
 
 The GNOME extension only runs `ai-limits json` and draws the result; adding a provider means one
 module in `ai_limits/providers/`.

@@ -6,7 +6,7 @@ import hashlib
 import math
 import os
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 
 SCHEMA = 1
 
@@ -62,18 +62,21 @@ def percent(value) -> float | None:
 
 
 def to_epoch(value) -> int | None:
-    """Epoch seconds/milliseconds or ISO-8601 -> epoch seconds."""
+    """Epoch seconds/milliseconds or ISO-8601 -> epoch seconds; naive ISO times mean UTC."""
     if value is None or value == "":
         return None
     if isinstance(value, bool):
         return None
-    if isinstance(value, (int, float)):
-        if not math.isfinite(value):
-            return None
-        return int(value / 1000) if value > 1e11 else int(value)
     try:
-        return int(datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp())
-    except ValueError:
+        if isinstance(value, (int, float)):
+            if not math.isfinite(value):
+                return None
+            return int(value / 1000) if value > 1e11 else int(value)
+        when = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        return int(when.timestamp())
+    except (ValueError, OverflowError, OSError):
         return None
 
 

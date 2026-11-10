@@ -11,7 +11,6 @@ refreshing it here would race with Claude Code's own refresh.
 
 from __future__ import annotations
 
-import fcntl
 import json
 import os
 import re
@@ -89,6 +88,17 @@ def _from_tap(acc: AccountConfig) -> Snapshot | None:
 
 def _from_network(acc: AccountConfig, cfg: Config, now: int) -> Snapshot:
     """Cached network result, refreshed at most every min_interval_seconds (successful or not)."""
+    try:
+        netguard.require_supported_platform()
+    except netguard.VpnCheckFailed as e:
+        netguard.last_check = False
+        snap = _cached_snapshot(read_json(cache_dir() / "net" / f"{acc.id}.json") or {})
+        snap.status, snap.message = "vpn_off", str(e)
+        return snap
+
+    # Network mode is Linux-only. Offline imports and taps must also work without fcntl.
+    import fcntl
+
     net_dir = private_dir(cache_dir() / "net")
     cache_file = net_dir / f"{acc.id}.json"
     with os.fdopen(os.open(net_dir / f"{acc.id}.lock", os.O_WRONLY | os.O_CREAT, 0o600), "w") as lock:

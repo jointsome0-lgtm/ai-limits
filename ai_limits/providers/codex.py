@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from ..config import Config
@@ -88,8 +88,11 @@ def _recent_logs(home: Path) -> list[Path]:
 def _parse_ts(value) -> float | None:
     """ISO-8601 with any precision/offset -> epoch float (string comparison gets these wrong)."""
     try:
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
-    except ValueError:
+        when = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        return when.timestamp()
+    except (ValueError, OverflowError, OSError):
         return None
 
 

@@ -67,8 +67,8 @@ def load(path: Path | None = None) -> Config:
     raw: dict = {}
     if path.exists():
         try:
-            raw = tomllib.loads(path.read_text())
-        except (OSError, tomllib.TOMLDecodeError) as e:
+            raw = tomllib.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, tomllib.TOMLDecodeError) as e:
             raise ConfigError(f"{path}: {e}") from e
 
     net = raw.get("network", {})

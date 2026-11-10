@@ -6,6 +6,10 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 source_dir="$script_dir/$uuid"
 destination="${XDG_DATA_HOME:-$HOME/.local/share}/gnome-shell/extensions/$uuid"
 enable=0
+if [ "$#" -gt 1 ]; then
+    printf 'usage: %s [--enable]\n' "$0" >&2
+    exit 2
+fi
 case "${1:-}" in
     --enable) enable=1 ;;
     '') ;;
@@ -13,8 +17,24 @@ case "${1:-}" in
 esac
 
 if ! command -v glib-compile-schemas >/dev/null 2>&1; then
-    printf '%s\n' 'Missing glib-compile-schemas (Ubuntu: sudo apt install libglib2.0-bin).' >&2
+    printf '%s\n' \
+        'Missing glib-compile-schemas. Install the GLib tools for your distribution:' \
+        '  Debian/Ubuntu: sudo apt install libglib2.0-bin' \
+        '  Fedora: sudo dnf install glib2' \
+        '  Arch: sudo pacman -S glib2' >&2
     exit 1
+fi
+
+if [ "$enable" = 1 ]; then
+    for tool in gsettings python3; do
+        if ! command -v "$tool" >/dev/null 2>&1; then
+            printf 'Missing %s (required for --enable).\n' "$tool" >&2
+            exit 1
+        fi
+    done
+    # Fail before installing anything when the session lacks GNOME Shell's settings schema.
+    gsettings get org.gnome.shell enabled-extensions >/dev/null
+    gsettings get org.gnome.shell disabled-extensions >/dev/null
 fi
 
 # Check before copying; settings are only touched with --enable.
@@ -46,7 +66,7 @@ print(repr(items))' "$current" "$2" "$uuid")"
 else
     printf '%s\n' \
         'On Wayland, log out and back in after a first install so Shell discovers the extension.' \
-        "Enable:   ./install.sh --enable   (or: gnome-extensions enable $uuid after re-login)"
+        "Enable:   \"$script_dir/install.sh\" --enable   (or: gnome-extensions enable $uuid after re-login)"
 fi
 printf '%s\n' \
     'After updating its code, log out and back in to load the new JavaScript.' \

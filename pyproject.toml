@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -9,10 +9,35 @@ description = "AI subscription usage limits (Claude, Codex) for your desktop pan
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
+license-files = ["LICENSE"]
+authors = [{name = "jointsome0-lgtm"}]
+keywords = ["claude", "codex", "usage", "limits", "gnome", "offline", "cli"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Utilities",
+]
 dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/jointsome0-lgtm/ai-limits"
+Repository = "https://github.com/jointsome0-lgtm/ai-limits"
+Issues = "https://github.com/jointsome0-lgtm/ai-limits/issues"
+Documentation = "https://github.com/jointsome0-lgtm/ai-limits#readme"
 
 [project.scripts]
 ai-limits = "ai_limits.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["ai_limits*"]
+include = ["ai_limits", "ai_limits.*"]
+namespaces = false

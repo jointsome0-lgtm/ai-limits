@@ -19,6 +19,7 @@ import os
 import socket
 import ssl
 import subprocess
+import sys
 import time
 
 PROBE_ATTEMPTS = 2
@@ -33,8 +34,15 @@ class VpnCheckFailed(Exception):
     pass
 
 
+def require_supported_platform() -> None:
+    """Do not substitute an unguarded transport on non-Linux platforms."""
+    if sys.platform != "linux" or not hasattr(socket, "SO_BINDTODEVICE"):
+        raise VpnCheckFailed("network mode requires Linux with SO_BINDTODEVICE; use offline mode on this platform")
+
+
 def check_route(host: str, interface: str) -> str:
     """Return the IPv4 address to use for `host`, or raise VpnCheckFailed."""
+    require_supported_platform()
     if not interface or not os.path.exists(f"/sys/class/net/{interface}"):
         raise VpnCheckFailed(f"interface {interface or '?'} is down")
     try:
@@ -43,7 +51,7 @@ def check_route(host: str, interface: str) -> str:
         raise VpnCheckFailed(f"cannot resolve {host}: {e}") from e
     try:
         out = subprocess.run(["ip", "route", "get", ip], capture_output=True, text=True, timeout=5,
-                             env=SUBPROCESS_ENV).stdout
+                             encoding="ascii", errors="replace", check=True, env=SUBPROCESS_ENV).stdout
     except (OSError, subprocess.SubprocessError) as e:
         raise VpnCheckFailed(f"cannot check route: {e}") from e
     tokens = out.split()
@@ -62,15 +70,16 @@ class _PinnedHTTPSConnection(http.client.HTTPSConnection):
         self._interface = interface
 
     def connect(self):
+        require_supported_platform()
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_BINDTODEVICE, self._interface.encode())
             sock.settimeout(self.timeout)
             sock.connect((self._ip, self.port))
+            self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
         except OSError:
             sock.close()
             raise
-        self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
 
 
 def _tls_context() -> ssl.SSLContext:

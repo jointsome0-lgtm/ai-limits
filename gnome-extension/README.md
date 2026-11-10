@@ -1,7 +1,8 @@
 # AI Limits — GNOME Shell extension
 
 Local Claude / Codex usage in the top bar, with a menu for every account.
-Targets GNOME Shell **45–49**, including Ubuntu's Shell 46. No build step.
+Targets GNOME Shell **45–49**, on Debian/Ubuntu, Fedora, Arch, or other GNOME distributions.
+No JavaScript build step; the installer compiles the settings schema.
 
 ```sh
 ./gnome-extension/install.sh
@@ -14,6 +15,10 @@ The installer respects `XDG_DATA_HOME` (normally `~/.local/share`). It compiles
 the schema in the installed copy, without enabling the extension or installing
 the Python core. Log out/in after code updates too; toggling an extension does
 not reliably reload its imported modules.
+
+Requires Bash, coreutils (`install`), and `glib-compile-schemas` (Debian/Ubuntu:
+`libglib2.0-bin`; Fedora: `glib2`; Arch: `glib2`). The optional `--enable` flag also
+requires `gsettings`, Python 3, and the `org.gnome.shell` settings schema.
 
 ## Behaviour
 
@@ -70,3 +75,10 @@ Adw.SpinRow requires libadwaita 1.4+ (GNOME 45+). The layout helper uses
 `orientation` where available and the older `vertical` property otherwise.
 Static checks do not verify Shell rendering, themes, HiDPI, or runtime behaviour
 across all five Shell versions; those still require desktop smoke testing.
+
+GNOME [50](https://gjs.guide/extensions/upgrading/gnome-shell-50.html) has no relevant
+entry-point changes. GNOME [51](https://gjs.guide/extensions/upgrading/gnome-shell-51.html)
+removes `vertical` and rejects async `disable()`; this extension already feature-detects
+`orientation` and has a synchronous `disable()`. No further source-level incompatibility
+was found, but 50/51 are deliberately not advertised in `shell-version` until desktop
+smoke tests confirm rendering, preferences, and lifecycle behaviour.
