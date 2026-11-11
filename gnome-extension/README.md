@@ -34,14 +34,17 @@ requires `gsettings`, Python 3, and the `org.gnome.shell` settings schema.
 - Each provider chip shows the recommended account's highest usage, or the
   only account's highest usage. Multiple accounts without a recommendation
   show `—`; the extension does not guess which account to recommend.
-- Usage is monochrome below 70%, amber at 70%, red at 90%. Critical chips
-  include a compact reset countdown. `⏸` means VPN paused, `!` error, `—` no
+- Usage is monochrome below 70%, amber at 70%, red at 90%. Below 70%, a chip
+  turns blue when the current pace would use one of the account's limits up
+  before it resets. Critical chips include a compact reset countdown. `⏸` means VPN paused, `!` error, `—` no
   data; stale accounts are dim. All accounts remain visible in the menu.
-- In the menu each limit has a bar with a tick at how much of its window has
-  passed (when the window length is known). Fill past the tick, in blue, is
-  usage ahead of an even pace. When that pace would use the limit up clearly
-  before the reset, a line under the row says when. An account's status line
-  appears only when something needs attention (stale, VPN paused, error, no data).
+- The menu lists each account's limits as a table: which models a limit covers
+  (written once per group), its window, a bar, usage, and the reset. The bar
+  has a tick at how much of the window has passed (when its length is known);
+  fill past the tick, in blue, is usage ahead of an even pace. When that pace
+  would use a limit up clearly before the reset, a note under the account says
+  when. Unused limits (0%) are dimmed. An account's status line appears only
+  when something needs attention (stale, VPN paused, error, no data).
 - Countdown/status labels update in place on refresh. Menu rows rebuild only
   on changed data, opening the menu, or changing the panel placement.
   Past resets say “resetting”; usage estimation remains the core's job.

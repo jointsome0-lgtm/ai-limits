@@ -52,6 +52,42 @@ function age(timestamp, now) {
     return `${Math.floor(seconds / 86400)}d ago`;
 }
 
+const WINDOW_NAMES = {60: 'Hour', 300: '5h', 1440: 'Day', 10080: 'Week'};
+const WINDOW_ADJECTIVES = {60: 'hourly', 300: '5-hour', 1440: 'daily', 10080: 'weekly'};
+
+function windowName(minutes) {
+    if (!Number.isFinite(minutes) || minutes <= 0)
+        return '';
+    if (WINDOW_NAMES[minutes])
+        return WINDOW_NAMES[minutes];
+    if (minutes % 1440 === 0)
+        return `${minutes / 1440}d`;
+    return minutes % 60 === 0 ? `${minutes / 60}h` : `${minutes}m`;
+}
+
+// Who a limit applies to and its window, for the two label columns. Scoped limits ("7d:fable")
+// take the name from their label ("Fable (week)"); unscoped ones cover the provider's models.
+function limitParts(account, limit) {
+    const window = windowName(limit.window_minutes);
+    if (!window)
+        return {scope: limit.label, window: ''};
+    if (String(limit.id ?? '').includes(':'))
+        return {scope: limit.label.replace(/\s*\([^)]*\)\s*$/, '') || limit.label, window};
+    return {scope: account.provider === 'gemini' ? 'Gemini' : 'All models', window};
+}
+
+// Core messages are terse CLI text ("no data yet: add `x` to ..."): show them as sentences,
+// with `command` spans in monospace. Everything from the core is escaped; only <tt> is ours.
+function sentenceMarkup(text) {
+    let line = String(text).trim();
+    if (!line)
+        return '';
+    line = line[0].toUpperCase() + line.slice(1);
+    if (!/[.!?)]$/.test(line))
+        line += '.';
+    return GLib.markup_escape_text(line, -1).replace(/`([^`]+)`/g, '<tt>$1</tt>');
+}
+
 function clock(timestamp, now) {
     const when = GLib.DateTime.new_from_unix_local(Math.floor(timestamp));
     const today = GLib.DateTime.new_from_unix_local(Math.floor(now));
@@ -97,16 +133,17 @@ function runsOutAt(limit, now) {
 
 // Only say something when it needs attention; the footer already shows when data was refreshed.
 function statusText(account, now) {
-    const extra = account.message ? ` ${account.message}` : '';
+    const message = account.message ? sentenceMarkup(account.message) : '';
+    const extra = message ? ` ${message}` : '';
     if (account.status === 'vpn_off')
         return `Paused: the VPN is off. Showing data from ${age(account.updated_at, now)}.${extra}`;
     if (account.status === 'error')
-        return account.message || 'Unable to read account data.';
+        return message || 'Unable to read account data.';
     if (account.status === 'no_data')
-        return account.message || 'No data captured yet.';
+        return message || 'No data captured yet.';
     if (account.status === 'stale')
         return `Last updated ${age(account.updated_at, now)}, so these numbers may be out of date.${extra}`;
-    return account.message || '';
+    return message;
 }
 
 function parsePayload(text) {
@@ -391,11 +428,17 @@ export default class AILimitsExtension extends Extension {
                 !max || item.used_percent > max.used_percent ? item : max, null);
             let value = '—';
             let color = '';
+            let note = '';
             if (account?.status === 'error') {
                 value = '!';
             } else if (account?.status !== 'no_data' && limit) {
                 value = `${limit.estimated ? '~' : ''}${Math.round(limit.used_percent)}%`;
-                color = severity(limit.used_percent);
+                // amber/red outrank blue: they already say "look at this"
+                const ahead = account.status === 'ok' &&
+                    account.limits.some(item => runsOutAt(item, now) !== null);
+                color = severity(limit.used_percent) || (ahead ? 'ai-limits-ahead' : '');
+                if (ahead)
+                    note = ', on course to run out before the reset';
                 if (limit.used_percent >= 90 && Number.isFinite(limit.resets_at))
                     value += ` · ${duration(limit.resets_at - now, true)}`;
             }
@@ -403,7 +446,7 @@ export default class AILimitsExtension extends Extension {
             if (account?.status === 'vpn_off')
                 value = value === '—' ? '⏸' : `${value} ⏸`;
             const dim = account?.status === 'stale' || this._notice.startsWith('Cached data');
-            summaries.push({key: provider, text: `${glyph(provider)} ${value}`,
+            summaries.push({key: provider, text: `${glyph(provider)} ${value}`, note,
                 style: `${color} ${dim ? 'ai-limits-stale' : ''}`});
         }
         if (!summaries.length)
@@ -425,16 +468,19 @@ export default class AILimitsExtension extends Extension {
             label.text = summary.text;
             label.style_class = `ai-limits-chip ${summary.style}`;
         });
-        this._button.accessible_name = `AI Limits: ${summaries.map(item => item.text).join(', ')}`;
+        this._button.accessible_name =
+            `AI Limits: ${summaries.map(item => `${item.text}${item.note ?? ''}`).join('; ')}`;
     }
 
     _label(text, style = '') {
         return new St.Label({text, style_class: style, y_align: Clutter.ActorAlign.CENTER});
     }
 
-    _timeLabel(format, style = 'ai-limits-muted') {
-        const label = this._label(format(Date.now() / 1000), style);
-        this._timeLabels.push({label, format});
+    _timeLabel(format, style = 'ai-limits-muted', markup = false) {
+        const label = this._label('', style);
+        const set = text => markup ? label.clutter_text.set_markup(text) : label.set_text(text);
+        set(format(Date.now() / 1000));
+        this._timeLabels.push({set, format});
         return label;
     }
 
@@ -442,8 +488,8 @@ export default class AILimitsExtension extends Extension {
         if (!this._button.menu.isOpen)
             return;
         const now = Date.now() / 1000;
-        for (const {label, format} of this._timeLabels)
-            label.text = format(now);
+        for (const {set, format} of this._timeLabels)
+            set(format(now));
     }
 
     _info(text, style = 'ai-limits-muted') {
@@ -484,7 +530,7 @@ export default class AILimitsExtension extends Extension {
             details.add_child(title);
             if (statusText(account, Date.now() / 1000)) {
                 const status = this._timeLabel(now => statusText(account, now),
-                    `ai-limits-status ai-limits-status-${account.status}`);
+                    `ai-limits-status ai-limits-status-${account.status}`, true);
                 status.add_style_class_name('ai-limits-notice');
                 status.clutter_text.line_wrap = true;
                 status.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;
@@ -492,8 +538,19 @@ export default class AILimitsExtension extends Extension {
             }
             header.add_child(details);
             this._button.menu.addMenuItem(header);
-            for (const limit of account.limits)
-                this._addLimit(account, limit);
+            let scope = null;
+            const forecasts = [];
+            const now = Date.now() / 1000;
+            for (const limit of account.limits) {
+                const parts = limitParts(account, limit);
+                this._addLimit(account, limit, parts, parts.scope !== scope);
+                scope = parts.scope;
+                const out = account.status === 'ok' ? runsOutAt(limit, now) : null;
+                if (out !== null)
+                    forecasts.push([limit, parts, out]);
+            }
+            for (const [limit, parts, out] of forecasts)
+                this._addForecast(account, limit, parts, out);
         });
         this._button.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         const generated = this._state?.generated_at;
@@ -514,32 +571,42 @@ export default class AILimitsExtension extends Extension {
         }
     }
 
-    _addLimit(account, limit) {
+    _addLimit(account, limit, parts, firstInScope) {
         const now = Date.now() / 1000;
         const level = severity(limit.used_percent);
+        const percent = `${limit.estimated ? '~' : ''}${Math.round(limit.used_percent)}%`;
         const row = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false});
         row.add_style_class_name('ai-limits-limit');
         if (account.status === 'stale' || account.status === 'vpn_off')
             row.add_style_class_name('ai-limits-stale');
-        row.add_child(this._label(limit.label, 'ai-limits-limit-name'));
+        else if (Math.round(limit.used_percent) === 0)
+            row.add_style_class_name('ai-limits-unused');
+        // the scope is written once per group; rows below it leave the cell empty
+        row.add_child(this._label(firstInScope ? parts.scope : '', 'ai-limits-scope'));
+        row.add_child(this._label(parts.window, 'ai-limits-window'));
         row.add_child(this._meter(limit, now, level));
-        row.add_child(this._label(`${limit.estimated ? '~' : ''}${Math.round(limit.used_percent)}%`,
-            `ai-limits-percent ${level}`));
+        row.add_child(this._label(percent, `ai-limits-percent ${level}`));
+        const when = resetWhen(limit, now);
+        row.accessible_name = `${account.label}, ${parts.scope}${parts.window ? ` ${parts.window}` : ''}: ` +
+            `${percent} used${when ? `, resets ${when}` : ''}`;
         row.add_child(this._timeLabel(at => resetWhen(limit, at), 'ai-limits-when'));
         row.add_child(this._timeLabel(at => resetIn(limit, at), 'ai-limits-countdown'));
         this._button.menu.addMenuItem(row);
+    }
 
-        const out = account.status === 'ok' ? runsOutAt(limit, now) : null;
-        if (out !== null) {
-            const hint = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false});
-            hint.add_style_class_name('ai-limits-forecast-row');
-            const text = this._label('', 'ai-limits-forecast');
-            // our own text; the time is escaped anyway since it comes from the locale
-            text.clutter_text.set_markup(`At this pace it runs out at <b>${
-                GLib.markup_escape_text(clock(out, now) ?? '', -1)}</b>, before the reset.`);
-            hint.add_child(text);
-            this._button.menu.addMenuItem(hint);
-        }
+    // A note under the account's rows (not between them, which would split a scope group).
+    _addForecast(account, limit, parts, out) {
+        const span = WINDOW_ADJECTIVES[limit.window_minutes] ?? parts.window;
+        const name = String(limit.id ?? '').includes(':')
+            ? `the ${parts.scope} ${span} limit` : `the ${span} limit`;
+        const hint = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false});
+        hint.add_style_class_name('ai-limits-forecast-row');
+        const text = this._label('', 'ai-limits-forecast');
+        // the scope comes from the core and the time from the locale: escape both
+        text.clutter_text.set_markup(`At this pace ${GLib.markup_escape_text(name, -1)} runs out at <b>${
+            GLib.markup_escape_text(clock(out, Date.now() / 1000) ?? '', -1)}</b>, before it resets.`);
+        hint.add_child(text);
+        this._button.menu.addMenuItem(hint);
     }
 
     // Usage bar with a tick at how much of the window has passed: fill past the tick = faster than even pace.

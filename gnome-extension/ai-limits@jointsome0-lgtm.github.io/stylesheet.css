@@ -3,6 +3,8 @@
 .ai-limits-warning { color: #e5a50a; }
 .ai-limits-critical { color: #ed333b; }
 .ai-limits-stale { opacity: 0.55; }
+/* panel chip when a limit is on course to run out before its reset (same blue as the menu) */
+.ai-limits-chip.ai-limits-ahead { color: #62a0ea; }
 .ai-limits-muted { opacity: 0.65; }
 
 /* account header */
@@ -17,9 +19,11 @@
 .ai-limits-status { font-size: 0.9em; opacity: 0.75; }
 .ai-limits-status-error { color: #ed333b; opacity: 1; }
 
-/* one limit: name | meter | percent | reset time | countdown */
+/* one limit: scope | window | meter | percent | reset time | countdown */
 .ai-limits-limit { spacing: 12px; padding-top: 4px; padding-bottom: 4px; }
-.ai-limits-limit-name { width: 10.5em; }
+.ai-limits-unused { opacity: 0.5; }
+.ai-limits-scope { width: 6.6em; }
+.ai-limits-window { width: 2.8em; opacity: 0.6; }
 .ai-limits-percent { width: 3em; text-align: right; font-weight: bold; font-feature-settings: "tnum"; }
 .ai-limits-when { width: 5.2em; font-feature-settings: "tnum"; }
 .ai-limits-countdown { width: 5em; text-align: right; opacity: 0.55; font-feature-settings: "tnum"; }
@@ -47,6 +51,6 @@
     background-color: rgba(128, 128, 128, 0.95);
 }
 
-.ai-limits-forecast-row { padding-top: 0; }
+.ai-limits-forecast-row { padding-top: 2px; }
 .ai-limits-forecast { font-size: 0.9em; opacity: 0.85; }
 .ai-limits-aside { opacity: 0.55; font-size: 0.9em; }
