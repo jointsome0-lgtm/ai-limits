@@ -11,6 +11,11 @@
     provider = "codex"
     label = "Codex · work"
     home = "~/.codex-work"
+
+    [[account]]                    # gemini accounts are told apart by the agy sign-in email
+    provider = "gemini"
+    label = "Gemini Ultra x5"
+    email = "me@gmail.com"
 """
 
 from __future__ import annotations
@@ -23,10 +28,11 @@ from pathlib import Path
 
 from .model import AccountConfig, normalise_home
 
-PROVIDERS = ("claude", "codex")
-DEFAULT_HOMES = {
+PROVIDERS = ("claude", "codex", "gemini")
+DEFAULT_HOMES = {  # provider: (env override or None, default home, default label)
     "claude": ("CLAUDE_CONFIG_DIR", "~/.claude", "Claude"),
     "codex": ("CODEX_HOME", "~/.codex", "Codex"),
+    "gemini": (None, "~/.gemini/antigravity-cli", "Gemini"),
 }
 
 
@@ -97,11 +103,16 @@ def load(path: Path | None = None) -> Config:
         if provider not in PROVIDERS:
             raise ConfigError(f"{path}: account #{i + 1}: provider must be one of {', '.join(PROVIDERS)}")
         env, default_home, default_label = DEFAULT_HOMES[provider]
-        home = entry.get("home") or os.environ.get(env) or default_home
+        home = entry.get("home") or (env and os.environ.get(env)) or default_home
+        email = _typed(path, "account.email", entry.get("email"), str, None) or None
+        if email and provider != "gemini":
+            raise ConfigError(f"{path}: account #{i + 1}: email is only used for gemini accounts")
         acc = AccountConfig(provider, _typed(path, "account.label", entry.get("label"), str, None) or default_label,
-                            normalise_home(_typed(path, "account.home", home, str)))
+                            normalise_home(_typed(path, "account.home", home, str)), email)
         if any(a.id == acc.id for a in cfg.accounts):
-            raise ConfigError(f"{path}: account #{i + 1}: {provider} {acc.home} is listed twice")
+            what = f"email {email}" if email else acc.home
+            hint = " (give each gemini account its own email)" if provider == "gemini" and not email else ""
+            raise ConfigError(f"{path}: account #{i + 1}: {provider} {what} is listed twice{hint}")
         cfg.accounts.append(acc)
 
     if not cfg.accounts:
@@ -118,7 +129,7 @@ def _typed(path, key, value, types, *allowed):
 def detect_accounts() -> list[AccountConfig]:
     found = []
     for provider, (env, default_home, label) in DEFAULT_HOMES.items():
-        home = normalise_home(os.environ.get(env) or default_home)
+        home = normalise_home((env and os.environ.get(env)) or default_home)
         if os.path.isdir(home):
             found.append(AccountConfig(provider, label, home))
     return found

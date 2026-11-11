@@ -1,6 +1,6 @@
 # ai-limits
 
-See how much of your AI subscriptions is left — Claude and Codex, any number of accounts — right
+See how much of your AI subscriptions is left — Claude, Codex and Gemini, any number of accounts — right
 in the GNOME top bar.
 
 ```
@@ -17,11 +17,11 @@ in the GNOME top bar.
    Week           █████████░  91%   ↻ 18:00 (in 2h)
 ```
 
-**Offline by default.** ai-limits reads only what Claude Code and Codex already saved on your
+**Offline by default.** ai-limits reads only what Claude Code, Codex and the Antigravity CLI already saved on your
 machine. It sends no requests and does not read your tokens unless you turn on network mode, and
 network mode refuses to send anything unless the route goes through the VPN interface you name.
 
-> Unofficial. Not affiliated with Anthropic or OpenAI. The local formats and the usage endpoint it
+> Unofficial. Not affiliated with Anthropic, OpenAI or Google. The local formats and the usage endpoint it
 > reads are undocumented and may change.
 
 ## Install
@@ -60,6 +60,7 @@ an explicit timezone are interpreted as UTC.
 |---|---|---|
 | Codex | rate-limit snapshots in `~/.codex/sessions/**/rollout-*.jsonl`, updated whenever you use Codex | — |
 | Claude | `rate_limits` Claude Code passes to its status line; saved by `ai-limits tap claude` | `api.anthropic.com/api/oauth/usage` (adds per-model weekly limits) |
+| Gemini | `quota` the Antigravity CLI (`agy`) passes to its status line; saved by `ai-limits tap gemini` | — |
 
 When a window's reset time has passed, the limit is shown as `~0%` until fresh data arrives.
 
@@ -72,6 +73,19 @@ In `~/.claude/settings.json`:
 // already have a status line? pass stdin through to it:
 "statusLine": { "type": "command", "command": "ai-limits tap claude | bash ~/.claude/statusline.sh" }
 ```
+
+### Gemini: add the tap to the Antigravity CLI status line
+
+In `~/.gemini/antigravity-cli/settings.json`:
+
+```jsonc
+"statusLine": { "type": "command", "command": "ai-limits tap gemini --print" }
+// already have a status line? pass stdin through to it:
+"statusLine": { "type": "command", "command": "ai-limits tap gemini | ~/.gemini/antigravity-cli/statusline.sh" }
+```
+
+The numbers update whenever you use `agy`. Buckets that agy reports only as an amount left
+(`remaining_amount`, no fraction) are skipped, since there is no total to take a percentage of.
 
 ## Several accounts
 
@@ -93,9 +107,24 @@ home     = "~/.codex"
 provider = "codex"
 label    = "Codex · work"
 home     = "~/.codex-work"
+
+# Gemini: one agy install, told apart by the Google account agy is signed in with
+[[account]]
+provider = "gemini"
+label    = "Gemini Ultra x5"
+email    = "you@gmail.com"
+
+[[account]]
+provider = "gemini"
+label    = "Gemini Ultra x20"
+email    = "work@gmail.com"
 ```
 
-Without a config file, `~/.claude` and `~/.codex` are picked up automatically. With two or more
+Gemini accounts are matched by the `email` agy reports to its status line, so switching the agy
+login between subscriptions fills the right account; the cache stores only a hash of the email.
+With a single Gemini account `email` can be left out.
+
+Without a config file, `~/.claude`, `~/.codex` and `~/.gemini/antigravity-cli` are picked up automatically. With two or more
 accounts of one provider, the one with the most headroom gets a ★ and is the one shown in the panel.
 
 ## Network mode (Linux only, behind a VPN)
@@ -138,6 +167,7 @@ ai-limits --version     installed version
 ai-limits json          state for UIs (docs/state-schema.md), also written to ~/.cache/ai-limits/state.json
 ai-limits accounts      configured / detected accounts
 ai-limits tap claude    status line helper (see above)
+ai-limits tap gemini    the same for agy
 ```
 
 ## Development

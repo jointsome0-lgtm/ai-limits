@@ -9,7 +9,7 @@ from unittest import mock
 from ai_limits import config, netguard
 from ai_limits.core import build_state
 from ai_limits.model import AccountConfig, Limit, roll_forward
-from ai_limits.providers import claude
+from ai_limits.providers import claude, gemini
 
 NOW = 1_793_107_651
 TOKEN = "sk-ant-oat01-" + "x" * 40  # fake, but the right shape
@@ -365,7 +365,62 @@ class CodexTimeTest(Env):
         self.assertEqual(acc["limits"][0]["used_percent"], 70.0)
 
 
+def agy_input(email, fraction, plan="Ultra", reset_time="2026-11-01T16:00:00Z"):
+    return {"email": email, "plan_tier": plan, "workspace": {"current_dir": "/secret/project"},
+            "quota": {"gemini-weekly": {"remaining_fraction": fraction, "reset_time": reset_time,
+                                        "reset_in_seconds": 600}}}
+
+
+class GeminiTest(Env):
+    def test_tap_round_trip(self):
+        gemini.write_tap(agy_input("A@gmail.com", 0.9378), NOW)
+        acc = build_state(self.cfg(AccountConfig("gemini", "G", "/x", "a@gmail.com")), NOW)["accounts"][0]
+        self.assertEqual([(lim["id"], lim["label"]) for lim in acc["limits"]], [("7d", "Week")])
+        self.assertAlmostEqual(acc["limits"][0]["used_percent"], 6.22)
+        self.assertEqual((acc["source"], acc["plan"], acc["status"]), ("tap", "Ultra", "ok"))
+
+    def test_two_accounts_are_kept_apart_and_recommended(self):
+        gemini.write_tap(agy_input("x5@gmail.com", 0.2), NOW)
+        gemini.write_tap(agy_input("x20@gmail.com", 0.7), NOW)
+        state = build_state(self.cfg(AccountConfig("gemini", "Ultra x5", "/x", "x5@gmail.com"),
+                                     AccountConfig("gemini", "Ultra x20", "/x", "x20@gmail.com")), NOW)
+        used = {a["label"]: (round(a["limits"][0]["used_percent"]), a["recommended"]) for a in state["accounts"]}
+        self.assertEqual(used, {"Ultra x5": (80, False), "Ultra x20": (30, True)})
+
+    def test_tap_keeps_no_email_or_paths(self):
+        gemini.write_tap(agy_input("secret@gmail.com", 0.5), NOW)
+        text = gemini.tap_path(gemini.email_key("secret@gmail.com")).read_text()
+        self.assertNotIn("secret", text)
+        self.assertNotIn("/secret/project", text)
+
+    def test_reset_from_seconds_and_other_buckets(self):
+        gemini.write_tap({"quota": {"gemini-pro-daily": {"remaining_fraction": 0.25, "reset_in_seconds": 600},
+                                    "flash": {"remaining_amount": 3},
+                                    "gemini-weekly": {"remaining_fraction": 1, "disabled": True}}}, NOW)
+        acc = build_state(self.cfg(AccountConfig("gemini", "G", "/x")), NOW)["accounts"][0]
+        self.assertEqual([(lim["id"], lim["label"], lim["used_percent"], lim["resets_at"]) for lim in acc["limits"]],
+                         [("1d:pro", "Pro (day)", 75.0, NOW + 600)])
+
+    def test_unknown_email_has_no_data(self):
+        gemini.write_tap(agy_input("a@gmail.com", 0.5), NOW)
+        acc = build_state(self.cfg(AccountConfig("gemini", "G", "/x", "b@gmail.com")), NOW)["accounts"][0]
+        self.assertEqual(acc["status"], "no_data")
+
+
 class ConfigTest(Env):
+    def test_gemini_accounts_by_email(self):
+        path = self.tmp / "config.toml"
+        path.write_text('[[account]]\nprovider = "gemini"\nlabel = "x5"\nemail = "a@gmail.com"\n'
+                        '[[account]]\nprovider = "gemini"\nlabel = "x20"\nemail = "b@gmail.com"\n')
+        cfg = config.load(path)
+        self.assertEqual([(a.label, a.email) for a in cfg.accounts], [("x5", "a@gmail.com"), ("x20", "b@gmail.com")])
+        path.write_text('[[account]]\nprovider = "gemini"\n[[account]]\nprovider = "gemini"\n')
+        with self.assertRaises(config.ConfigError):
+            config.load(path)
+        path.write_text('[[account]]\nprovider = "codex"\nemail = "a@gmail.com"\n')
+        with self.assertRaises(config.ConfigError):
+            config.load(path)
+
     def test_accounts_from_file(self):
         path = self.tmp / "config.toml"
         path.write_text('[[account]]\nprovider = "codex"\nlabel = "work"\nhome = "~/.codex-work"\n')
@@ -394,7 +449,7 @@ class ConfigTest(Env):
 
     def test_bad_provider(self):
         path = self.tmp / "config.toml"
-        path.write_text('[[account]]\nprovider = "gemini"\n')
+        path.write_text('[[account]]\nprovider = "bard"\n')
         with self.assertRaises(config.ConfigError):
             config.load(path)
 

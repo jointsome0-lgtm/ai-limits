@@ -20,6 +20,8 @@ function glyph(provider) {
         return '✳';
     if (provider === 'codex')
         return '◎';
+    if (provider === 'gemini')
+        return '✦';
     return Array.from(provider)[0].toUpperCase();
 }
 

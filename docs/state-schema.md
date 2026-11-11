@@ -15,8 +15,8 @@ read it — they never touch credentials or the network themselves.
   },
   "accounts": [
     {
-      "id": "codex-1a2b3c4d5e6f",      // stable: provider + hash of home dir
-      "provider": "codex",             // "claude" | "codex"
+      "id": "codex-1a2b3c4d5e6f",      // stable: provider + hash of home dir (gemini with `email`: hash of the email)
+      "provider": "codex",             // "claude" | "codex" | "gemini"
       "label": "Codex · personal",
       "home": "/home/user/.codex",
       "plan": "pro",                   // null if unknown
@@ -27,7 +27,7 @@ read it — they never touch credentials or the network themselves.
       "recommended": true,             // most headroom among this provider's usable accounts; only set when the provider has 2+ accounts
       "limits": [
         {
-          "id": "7d",                  // "5h" | "7d" | "7d:<model>" | other provider ids
+          "id": "7d",                  // "5h" | "7d" | "7d:<model>" | "1d" | other provider ids
           "label": "Week",
           "used_percent": 64.0,        // 0..100 (may exceed 100)
           "resets_at": 1793599717,     // epoch seconds, null if unknown

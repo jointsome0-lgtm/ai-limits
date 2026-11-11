@@ -23,13 +23,15 @@ class Limit:
 
 @dataclass
 class AccountConfig:
-    provider: str  # "claude" | "codex"
+    provider: str  # "claude" | "codex" | "gemini"
     label: str
     home: str  # absolute, normalised
+    email: str | None = None  # gemini: which signed-in Google account this is
 
     @property
     def id(self) -> str:
-        return f"{self.provider}-{home_key(self.home)}"
+        key = self.email.strip().lower() if self.email else self.home
+        return f"{self.provider}-{home_key(key)}"
 
 
 @dataclass

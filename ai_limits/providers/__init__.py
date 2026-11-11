@@ -40,6 +40,6 @@ def write_json(path, data: dict) -> None:
 
 
 def get(provider: str):
-    from . import claude, codex
+    from . import claude, codex, gemini
 
-    return {"claude": claude, "codex": codex}[provider]
+    return {"claude": claude, "codex": codex, "gemini": gemini}[provider]
