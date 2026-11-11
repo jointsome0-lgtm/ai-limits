@@ -1,27 +1,52 @@
-/* Inherit the panel font and foreground; only warnings introduce colour. */
+/* Inherit the panel/menu font and foreground; colour only marks warnings. */
 .ai-limits-panel { spacing: 12px; }
 .ai-limits-warning { color: #e5a50a; }
 .ai-limits-critical { color: #ed333b; }
 .ai-limits-stale { opacity: 0.55; }
 .ai-limits-muted { opacity: 0.65; }
 
-.ai-limits-account { spacing: 3px; }
-.ai-limits-title { spacing: 10px; }
+/* account header */
+.ai-limits-head { padding-top: 8px; padding-bottom: 2px; }
+.ai-limits-account { spacing: 2px; }
+.ai-limits-title { spacing: 8px; }
+.ai-limits-glyph { opacity: 0.7; }
 .ai-limits-account-name { font-weight: bold; }
-.ai-limits-notice { max-width: 34em; }
-.ai-limits-limit { spacing: 10px; }
-.ai-limits-limit-name { width: 9em; }
-.ai-limits-percent { width: 4em; text-align: right; }
+.ai-limits-plan { opacity: 0.6; }
+.ai-limits-pick { opacity: 0.75; font-size: 0.9em; padding-left: 16px; }
+.ai-limits-notice { max-width: 36em; }
+.ai-limits-status { font-size: 0.9em; opacity: 0.75; }
+.ai-limits-status-error { color: #ed333b; opacity: 1; }
+
+/* one limit: name | meter | percent | reset time | countdown */
+.ai-limits-limit { spacing: 12px; padding-top: 4px; padding-bottom: 4px; }
+.ai-limits-limit-name { width: 10.5em; }
+.ai-limits-percent { width: 3em; text-align: right; font-weight: bold; font-feature-settings: "tnum"; }
+.ai-limits-when { width: 5.2em; font-feature-settings: "tnum"; }
+.ai-limits-countdown { width: 5em; text-align: right; opacity: 0.55; font-feature-settings: "tnum"; }
+
+.ai-limits-meter { width: 150px; height: 14px; spacing: 0; }
 .ai-limits-track {
-    width: 110px;
-    height: 4px;
-    border-radius: 2px;
-    background-color: rgba(128, 128, 128, 0.25);
+    height: 6px;
+    background-color: rgba(128, 128, 128, 0.22);
 }
 .ai-limits-fill {
-    height: 4px;
-    border-radius: 2px;
+    height: 6px;
     background-color: #9a9996;
 }
+/* the part used faster than an even pace; blue reads on light and dark menus */
+.ai-limits-fill.ai-limits-ahead { background-color: #3584e4; }
 .ai-limits-fill.ai-limits-warning { background-color: #e5a50a; }
 .ai-limits-fill.ai-limits-critical { background-color: #ed333b; }
+.ai-limits-start { border-radius: 3px 0 0 3px; }
+.ai-limits-end { border-radius: 0 3px 3px 0; }
+.ai-limits-start.ai-limits-end { border-radius: 3px; }
+/* where usage would be if spread evenly over the window */
+.ai-limits-tick {
+    height: 14px;
+    border-radius: 1px;
+    background-color: rgba(128, 128, 128, 0.95);
+}
+
+.ai-limits-forecast-row { padding-top: 0; }
+.ai-limits-forecast { font-size: 0.9em; opacity: 0.85; }
+.ai-limits-aside { opacity: 0.55; font-size: 0.9em; }

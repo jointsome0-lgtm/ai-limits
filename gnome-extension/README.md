@@ -1,6 +1,6 @@
 # AI Limits — GNOME Shell extension
 
-Local Claude / Codex usage in the top bar, with a menu for every account.
+Local Claude / Codex / Gemini usage in the top bar, with a menu for every account.
 Targets GNOME Shell **45–49**, on Debian/Ubuntu, Fedora, Arch, or other GNOME distributions.
 No JavaScript build step; the installer compiles the settings schema.
 
@@ -37,9 +37,14 @@ requires `gsettings`, Python 3, and the `org.gnome.shell` settings schema.
 - Usage is monochrome below 70%, amber at 70%, red at 90%. Critical chips
   include a compact reset countdown. `⏸` means VPN paused, `!` error, `—` no
   data; stale accounts are dim. All accounts remain visible in the menu.
+- In the menu each limit has a bar with a tick at how much of its window has
+  passed (when the window length is known). Fill past the tick, in blue, is
+  usage ahead of an even pace. When that pace would use the limit up clearly
+  before the reset, a line under the row says when. An account's status line
+  appears only when something needs attention (stale, VPN paused, error, no data).
 - Countdown/status labels update in place on refresh. Menu rows rebuild only
   on changed data, opening the menu, or changing the panel placement.
-  Past resets say “reset due”; usage estimation remains the core's job.
+  Past resets say “resetting”; usage estimation remains the core's job.
 - Preferences apply position/index live. Use the command row's Apply button
   to save a command. Parsing supports quoting, but **not** shell expansion,
   `~`, `$VARIABLES`, pipelines, or shell operators.

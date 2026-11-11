@@ -9,7 +9,8 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
-const TRACK_WIDTH = 110; // px, matches .ai-limits-track in stylesheet.css
+const TRACK_WIDTH = 150; // px, matches .ai-limits-meter in stylesheet.css
+const TICK_WIDTH = 2; // px, matches .ai-limits-tick
 
 function severity(percent) {
     return percent >= 90 ? 'ai-limits-critical' : percent >= 70 ? 'ai-limits-warning' : '';
@@ -51,28 +52,61 @@ function age(timestamp, now) {
     return `${Math.floor(seconds / 86400)}d ago`;
 }
 
-function resetText(timestamp, now) {
-    if (!Number.isFinite(timestamp))
-        return 'Reset unknown';
-    if (timestamp <= now)
-        return '↻ reset due';
-    const reset = GLib.DateTime.new_from_unix_local(Math.floor(timestamp));
+function clock(timestamp, now) {
+    const when = GLib.DateTime.new_from_unix_local(Math.floor(timestamp));
     const today = GLib.DateTime.new_from_unix_local(Math.floor(now));
-    if (!reset || !today)
-        return 'Reset unknown';
-    const format = reset.format('%F') === today.format('%F') ? '%H:%M' : '%a %H:%M';
-    return `↻ ${reset.format(format)} (in ${duration(timestamp - now)})`;
+    if (!when || !today)
+        return null;
+    return when.format(when.format('%F') === today.format('%F') ? '%H:%M' : '%a %H:%M');
 }
 
+function resetWhen(limit, now) {
+    if (!Number.isFinite(limit.resets_at))
+        return '';
+    if (limit.resets_at <= now)
+        return 'resetting';
+    return clock(limit.resets_at, now) ?? '';
+}
+
+function resetIn(limit, now) {
+    return Number.isFinite(limit.resets_at) && limit.resets_at > now
+        ? `in ${duration(limit.resets_at - now)}` : '';
+}
+
+// Share of the current window that has already passed (0..1), or null when the window is unknown.
+function elapsed(limit, now) {
+    const windowSeconds = (limit.window_minutes ?? 0) * 60;
+    if (!(windowSeconds > 0) || !Number.isFinite(limit.resets_at) || limit.resets_at <= now)
+        return null;
+    const left = limit.resets_at - now;
+    return left > windowSeconds ? null : 1 - left / windowSeconds;
+}
+
+// When the limit runs out at the current pace, if that is clearly before the reset; otherwise null.
+// Early in a window the pace says little, and running out minutes before the reset is not worth a line.
+function runsOutAt(limit, now) {
+    const passed = elapsed(limit, now);
+    if (passed === null || passed < 0.2 || limit.estimated ||
+        limit.used_percent < 5 || limit.used_percent >= 100)
+        return null;
+    const windowSeconds = limit.window_minutes * 60;
+    const start = limit.resets_at - windowSeconds;
+    const out = start + (now - start) * 100 / limit.used_percent;
+    return out < limit.resets_at - windowSeconds * 0.05 ? out : null;
+}
+
+// Only say something when it needs attention; the footer already shows when data was refreshed.
 function statusText(account, now) {
-    const updated = `updated ${age(account.updated_at, now)}`;
+    const extra = account.message ? ` ${account.message}` : '';
     if (account.status === 'vpn_off')
-        return `VPN off — paused · ${updated}${account.message ? ` · ${account.message}` : ''}`;
+        return `Paused: the VPN is off. Showing data from ${age(account.updated_at, now)}.${extra}`;
     if (account.status === 'error')
-        return account.message || 'Unable to read account data';
+        return account.message || 'Unable to read account data.';
     if (account.status === 'no_data')
-        return account.message || 'No data captured yet';
-    return `${updated}${account.message ? ` · ${account.message}` : ''}`;
+        return account.message || 'No data captured yet.';
+    if (account.status === 'stale')
+        return `Last updated ${age(account.updated_at, now)}, so these numbers may be out of date.${extra}`;
+    return account.message || '';
 }
 
 function parsePayload(text) {
@@ -434,60 +468,117 @@ export default class AILimitsExtension extends Extension {
             if (index)
                 this._button.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
             const header = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false});
+            header.add_style_class_name('ai-limits-head');
             const details = column({x_expand: true, style_class: 'ai-limits-account'});
             const title = new St.BoxLayout({style_class: 'ai-limits-title'});
-            title.add_child(this._label(`${glyph(account.provider)} ${account.label}`, 'ai-limits-account-name'));
+            title.add_child(this._label(glyph(account.provider), 'ai-limits-glyph'));
+            title.add_child(this._label(account.label, 'ai-limits-account-name'));
             if (account.plan)
-                title.add_child(this._label(account.plan, 'ai-limits-muted'));
+                title.add_child(this._label(account.plan, 'ai-limits-plan'));
+            if (account.recommended) {
+                title.add_child(new St.Label({
+                    text: '★ most headroom', style_class: 'ai-limits-pick',
+                    x_expand: true, x_align: Clutter.ActorAlign.END, y_align: Clutter.ActorAlign.CENTER,
+                }));
+            }
             details.add_child(title);
-            const status = this._timeLabel(now => statusText(account, now));
-            status.add_style_class_name('ai-limits-notice');
-            status.clutter_text.line_wrap = true;
-            status.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;
-            details.add_child(status);
-            if (account.recommended)
-                details.add_child(this._label('★ most headroom', 'ai-limits-muted'));
+            if (statusText(account, Date.now() / 1000)) {
+                const status = this._timeLabel(now => statusText(account, now),
+                    `ai-limits-status ai-limits-status-${account.status}`);
+                status.add_style_class_name('ai-limits-notice');
+                status.clutter_text.line_wrap = true;
+                status.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;
+                details.add_child(status);
+            }
             header.add_child(details);
             this._button.menu.addMenuItem(header);
             for (const limit of account.limits)
                 this._addLimit(account, limit);
         });
         this._button.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-        const footer = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false});
         const generated = this._state?.generated_at;
-        footer.add_child(this._timeLabel(now => Number.isFinite(generated)
-            ? `Updated ${age(generated, now)}` : 'Not updated yet'));
-        this._button.menu.addMenuItem(footer);
-        for (const [title, callback] of [
-            ['Refresh', () => this._refresh()],
-            ['Settings', () => this.openPreferences()],
+        for (const [title, callback, aside] of [
+            ['Refresh', () => this._refresh(), now => Number.isFinite(generated)
+                ? `updated ${age(generated, now)}` : 'not updated yet'],
+            ['Settings', () => this.openPreferences(), null],
         ]) {
             const item = new PopupMenu.PopupMenuItem(title);
+            if (aside) {
+                const label = this._timeLabel(aside, 'ai-limits-aside');
+                label.x_expand = true;
+                label.x_align = Clutter.ActorAlign.END;
+                item.add_child(label);
+            }
             this._menuSignals.push([item, item.connect('activate', callback)]);
             this._button.menu.addMenuItem(item);
         }
     }
 
     _addLimit(account, limit) {
+        const now = Date.now() / 1000;
+        const level = severity(limit.used_percent);
         const row = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false});
         row.add_style_class_name('ai-limits-limit');
         if (account.status === 'stale' || account.status === 'vpn_off')
             row.add_style_class_name('ai-limits-stale');
-        const name = this._label(limit.label, 'ai-limits-limit-name');
-        row.add_child(name);
-        // A box (not St.Bin, which centres its child) so the fill starts at the left edge.
-        // Width in CSS px (same TRACK_WIDTH as the stylesheet) so St applies HiDPI scaling;
-        // resizing from an allocation handler would trigger relayout loops.
-        const bar = new St.BoxLayout({style_class: 'ai-limits-track', y_align: Clutter.ActorAlign.CENTER});
-        const fraction = Math.min(1, Math.max(0, limit.used_percent / 100));
-        bar.add_child(new St.Widget({
-            style_class: `ai-limits-fill ${severity(limit.used_percent)}`,
-            style: `width: ${Math.round(TRACK_WIDTH * fraction)}px;`,
-        }));
-        row.add_child(bar);
+        row.add_child(this._label(limit.label, 'ai-limits-limit-name'));
+        row.add_child(this._meter(limit, now, level));
         row.add_child(this._label(`${limit.estimated ? '~' : ''}${Math.round(limit.used_percent)}%`,
-            `ai-limits-percent ${severity(limit.used_percent)}`));
-        row.add_child(this._timeLabel(now => resetText(limit.resets_at, now)));
+            `ai-limits-percent ${level}`));
+        row.add_child(this._timeLabel(at => resetWhen(limit, at), 'ai-limits-when'));
+        row.add_child(this._timeLabel(at => resetIn(limit, at), 'ai-limits-countdown'));
         this._button.menu.addMenuItem(row);
+
+        const out = account.status === 'ok' ? runsOutAt(limit, now) : null;
+        if (out !== null) {
+            const hint = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false});
+            hint.add_style_class_name('ai-limits-forecast-row');
+            const text = this._label('', 'ai-limits-forecast');
+            // our own text; the time is escaped anyway since it comes from the locale
+            text.clutter_text.set_markup(`At this pace it runs out at <b>${
+                GLib.markup_escape_text(clock(out, now) ?? '', -1)}</b>, before the reset.`);
+            hint.add_child(text);
+            this._button.menu.addMenuItem(hint);
+        }
+    }
+
+    // Usage bar with a tick at how much of the window has passed: fill past the tick = faster than even pace.
+    // Built from side-by-side segments (fill, empty, tick) rather than overlapping layers. Sizes are CSS px
+    // (TRACK_WIDTH matches the stylesheet) so St applies HiDPI scaling; resizing from an allocation
+    // handler would trigger relayout loops.
+    _meter(limit, now, level) {
+        const meter = new St.BoxLayout({style_class: 'ai-limits-meter', y_align: Clutter.ActorAlign.CENTER});
+        const used = Math.round(TRACK_WIDTH * Math.min(1, Math.max(0, limit.used_percent / 100)));
+        const passed = elapsed(limit, now);
+        const tick = passed === null ? null
+            : Math.min(TRACK_WIDTH - TICK_WIDTH, Math.round(TRACK_WIDTH * passed));
+        const cuts = [...new Set([0, used, TRACK_WIDTH, ...(tick === null ? [] : [tick, tick + TICK_WIDTH])])]
+            .sort((a, b) => a - b);
+        const pieces = [];
+        for (let i = 1; i < cuts.length; i++) {
+            const [from, to] = [cuts[i - 1], cuts[i]];
+            if (to > from)
+                pieces.push({from, to, kind: from === tick ? 'tick' : to <= used ? 'fill' : 'track'});
+        }
+        pieces.forEach(({from, to, kind}, index) => {
+            const classes = [kind === 'tick' ? 'ai-limits-tick'
+                : kind === 'fill' ? `ai-limits-fill ${level}` : 'ai-limits-track'];
+            if (kind === 'fill' && tick !== null && from >= tick)
+                classes.push('ai-limits-ahead'); // used faster than an even pace
+            if (kind !== 'tick') {
+                // round only the outer ends of the bar, and the fill's end where it meets the empty track
+                const first = index === 0 || pieces[index - 1].kind === 'tick';
+                const last = index === pieces.length - 1 || pieces[index + 1].kind === 'tick';
+                if (first && from === 0)
+                    classes.push('ai-limits-start');
+                if ((last && to === TRACK_WIDTH) || (kind === 'fill' && to === used))
+                    classes.push('ai-limits-end');
+            }
+            meter.add_child(new St.Widget({
+                style_class: classes.join(' '), style: `width: ${to - from}px;`,
+                y_align: Clutter.ActorAlign.CENTER,
+            }));
+        });
+        return meter;
     }
 }
