@@ -11,19 +11,22 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 const TRACK_WIDTH = 150; // px, matches .ai-limits-meter in stylesheet.css
 const TICK_WIDTH = 2; // px, matches .ai-limits-tick
+const TICK_GAP = 1; // px of background on each side of the tick, so it stays visible on the fill
+const DAY = 86400;
 
 function severity(percent) {
     return percent >= 90 ? 'ai-limits-critical' : percent >= 70 ? 'ai-limits-warning' : '';
 }
 
-function glyph(provider) {
-    if (provider === 'claude')
-        return '✳';
-    if (provider === 'codex')
-        return '◎';
-    if (provider === 'gemini')
-        return '✦';
-    return Array.from(provider)[0].toUpperCase();
+const PROVIDER_NAMES = {claude: 'Claude', codex: 'Codex', gemini: 'Gemini'};
+
+function providerName(provider) {
+    return PROVIDER_NAMES[provider] ?? provider;
+}
+
+// Accounts the core can rank: they have numbers, even if not fresh ones (core.USABLE).
+function usable(account) {
+    return ['ok', 'stale', 'vpn_off'].includes(account.status) && account.limits.length > 0;
 }
 
 function duration(seconds, compact = false) {
@@ -34,9 +37,9 @@ function duration(seconds, compact = false) {
         return `${minutes}m`;
     const hours = Math.floor(minutes / 60);
     if (hours < 24)
-        return `${hours}h${!compact && minutes % 60 ? `${minutes % 60}m` : ''}`;
+        return `${hours}h${!compact && minutes % 60 ? ` ${minutes % 60}m` : ''}`;
     const days = Math.floor(hours / 24);
-    return `${days}d${!compact && hours % 24 ? `${hours % 24}h` : ''}`;
+    return `${days}d${!compact && hours % 24 ? ` ${hours % 24}h` : ''}`;
 }
 
 function age(timestamp, now) {
@@ -47,13 +50,12 @@ function age(timestamp, now) {
         return 'just now';
     if (seconds < 3600)
         return `${Math.floor(seconds / 60)} min ago`;
-    if (seconds < 86400)
+    if (seconds < DAY)
         return `${Math.floor(seconds / 3600)}h ago`;
-    return `${Math.floor(seconds / 86400)}d ago`;
+    return `${Math.floor(seconds / DAY)}d ago`;
 }
 
 const WINDOW_NAMES = {60: 'Hour', 300: '5h', 1440: 'Day', 10080: 'Week'};
-const WINDOW_ADJECTIVES = {60: 'hourly', 300: '5-hour', 1440: 'daily', 10080: 'weekly'};
 
 function windowName(minutes) {
     if (!Number.isFinite(minutes) || minutes <= 0)
@@ -76,6 +78,15 @@ function limitParts(account, limit) {
     return {scope: account.provider === 'gemini' ? 'Gemini' : 'All models', window};
 }
 
+// "Gemini Ultra x5" already says what "Google AI Ultra" says. A plan the label does not name
+// stays visible: it is how a wrong signed-in account shows up.
+function planText(account) {
+    const plan = account.plan?.trim() ?? '';
+    const tier = plan.split(/\s+/).pop()?.toLowerCase();
+    const words = account.label.toLowerCase().split(/[^\p{L}\p{N}]+/u);
+    return tier && words.includes(tier) ? '' : plan;
+}
+
 // Core messages are terse CLI text ("no data yet: add `x` to ..."): show them as sentences,
 // with `command` spans in monospace. Everything from the core is escaped; only <tt> is ours.
 function sentenceMarkup(text) {
@@ -88,25 +99,18 @@ function sentenceMarkup(text) {
     return GLib.markup_escape_text(line, -1).replace(/`([^`]+)`/g, '<tt>$1</tt>');
 }
 
-function clock(timestamp, now) {
-    const when = GLib.DateTime.new_from_unix_local(Math.floor(timestamp));
-    const today = GLib.DateTime.new_from_unix_local(Math.floor(now));
-    if (!when || !today)
-        return null;
-    return when.format(when.format('%F') === today.format('%F') ? '%H:%M' : '%a %H:%M');
+function localTime(timestamp, format) {
+    return GLib.DateTime.new_from_unix_local(Math.floor(timestamp))?.format(format) ?? '';
 }
 
-function resetWhen(limit, now) {
+// One column for the reset: a countdown while it is less than a day away, then weekday and time.
+function resetText(limit, now) {
     if (!Number.isFinite(limit.resets_at))
         return '';
-    if (limit.resets_at <= now)
+    const left = limit.resets_at - now;
+    if (left <= 0)
         return 'resetting';
-    return clock(limit.resets_at, now) ?? '';
-}
-
-function resetIn(limit, now) {
-    return Number.isFinite(limit.resets_at) && limit.resets_at > now
-        ? `in ${duration(limit.resets_at - now)}` : '';
+    return left < DAY ? `in ${duration(left)}` : localTime(limit.resets_at, '%a %H:%M');
 }
 
 // Share of the current window that has already passed (0..1), or null when the window is unknown.
@@ -129,6 +133,17 @@ function runsOutAt(limit, now) {
     const start = limit.resets_at - windowSeconds;
     const out = start + (now - start) * 100 / limit.used_percent;
     return out < limit.resets_at - windowSeconds * 0.05 ? out : null;
+}
+
+// The line under a limit that is on course to run out; the weekday comes from the locale, so escape it.
+function forecastMarkup(out, now) {
+    const left = out - now;
+    if (left <= 0)
+        return 'At this pace it runs out <b>now</b>.';
+    const bold = text => `<b>${GLib.markup_escape_text(text, -1)}</b>`;
+    const when = left < DAY ? `in ${bold(duration(left))}`
+        : `on ${bold(localTime(out, '%a'))} at ${bold(localTime(out, '%H:%M'))}`;
+    return `At this pace it runs out ${when}.`;
 }
 
 // Only say something when it needs attention; the footer already shows when data was refreshed.
@@ -412,7 +427,22 @@ export default class AILimitsExtension extends Extension {
         this._chips = null;
     }
 
+    // St CSS has neither opacity nor currentColor, so muted text and status colours are fixed colours,
+    // with a second set for light surfaces (Yaru's light menus; the panel stays dark). Tag the
+    // container when the theme draws dark text on it.
+    _markShade(actor) {
+        if (!actor?.get_stage())
+            return;
+        const color = actor.get_theme_node().get_foreground_color();
+        const light = 0.299 * color.red + 0.587 * color.green + 0.114 * color.blue < 128;
+        if (light)
+            actor.add_style_class_name('ai-limits-on-light');
+        else
+            actor.remove_style_class_name('ai-limits-on-light');
+    }
+
     _renderPanel() {
+        this._markShade(this._panelBox);
         const providers = new Map();
         for (const account of this._state?.accounts ?? []) {
             if (!providers.has(account.provider))
@@ -443,40 +473,70 @@ export default class AILimitsExtension extends Extension {
                     value += ` · ${duration(limit.resets_at - now, true)}`;
             }
             // offline data may still be fresh when only the network fetch is paused
-            if (account?.status === 'vpn_off')
-                value = value === '—' ? '⏸' : `${value} ⏸`;
+            const paused = account?.status === 'vpn_off';
+            if (paused)
+                note += ', paused while the VPN is off';
             const dim = account?.status === 'stale' || this._notice.startsWith('Cached data');
-            summaries.push({key: provider, text: `${glyph(provider)} ${value}`, note,
-                style: `${color} ${dim ? 'ai-limits-stale' : ''}`});
+            summaries.push({key: provider, text: value, note, paused, style: dim ? 'ai-limits-tertiary' : color});
         }
         if (!summaries.length)
             summaries.push({key: '', text: this._state ? 'AI —' : this._notice.startsWith('Loading') ? 'AI …' : 'AI !', style: ''});
-        for (const [key, label] of this._chips) {
+        for (const [key, chip] of this._chips) {
             if (!summaries.some(summary => summary.key === key)) {
-                label.destroy();
+                chip.box.destroy();
                 this._chips.delete(key);
             }
         }
         summaries.forEach((summary, index) => {
-            let label = this._chips.get(summary.key);
-            if (!label) {
-                label = new St.Label({y_align: Clutter.ActorAlign.CENTER});
-                this._chips.set(summary.key, label);
-                this._panelBox.add_child(label);
+            let chip = this._chips.get(summary.key);
+            if (!chip) {
+                // colour classes go on the box; the icon and the label inherit them
+                const box = new St.BoxLayout({y_align: Clutter.ActorAlign.CENTER});
+                if (summary.key)
+                    box.add_child(this._icon(summary.key, 'ai-limits-chip-icon'));
+                const label = new St.Label({y_align: Clutter.ActorAlign.CENTER});
+                box.add_child(label);
+                const pause = new St.Icon({icon_name: 'media-playback-pause-symbolic',
+                    style_class: 'ai-limits-chip-icon', y_align: Clutter.ActorAlign.CENTER});
+                box.add_child(pause);
+                chip = {box, label, pause};
+                this._chips.set(summary.key, chip);
+                this._panelBox.add_child(box);
             }
-            this._panelBox.set_child_at_index(label, index);
-            label.text = summary.text;
-            label.style_class = `ai-limits-chip ${summary.style}`;
+            this._panelBox.set_child_at_index(chip.box, index);
+            chip.label.text = summary.text;
+            chip.pause.visible = summary.paused === true;
+            chip.box.style_class = `ai-limits-chip ${summary.style}`;
         });
-        this._button.accessible_name =
-            `AI Limits: ${summaries.map(item => `${item.text}${item.note ?? ''}`).join('; ')}`;
+        this._button.accessible_name = `AI Limits: ${summaries.map(item =>
+            `${item.key ? `${providerName(item.key)} ` : ''}${item.text}${item.note ?? ''}`).join('; ')}`;
+    }
+
+    // Symbolic SVG from icons/<provider>-symbolic.svg, recoloured like text (so amber/red/blue apply);
+    // unknown providers get their initial. The name comes from the core, so it is checked before use as a path.
+    _icon(provider, styleClass) {
+        if (/^[a-z0-9_-]+$/.test(provider)) {
+            const file = this.dir.get_child('icons').get_child(`${provider}-symbolic.svg`);
+            if (file.query_exists(null)) {
+                return new St.Icon({gicon: new Gio.FileIcon({file}), style_class: styleClass,
+                    y_align: Clutter.ActorAlign.CENTER});
+            }
+        }
+        return this._label(Array.from(provider)[0]?.toUpperCase() ?? '?', `${styleClass} ai-limits-letter`);
     }
 
     _label(text, style = '') {
         return new St.Label({text, style_class: style, y_align: Clutter.ActorAlign.CENTER});
     }
 
-    _timeLabel(format, style = 'ai-limits-muted', markup = false) {
+    _wrap(label) {
+        // Bound long messages; wrap them instead of widening the popup.
+        label.clutter_text.line_wrap = true;
+        label.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;
+        return label;
+    }
+
+    _timeLabel(format, style = '', markup = false) {
         const label = this._label('', style);
         const set = text => markup ? label.clutter_text.set_markup(text) : label.set_text(text);
         set(format(Date.now() / 1000));
@@ -492,153 +552,184 @@ export default class AILimitsExtension extends Extension {
             set(format(now));
     }
 
-    _info(text, style = 'ai-limits-muted') {
-        const item = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false});
-        const label = this._label(text, style);
-        // Bound long command errors; wrap them instead of widening the popup.
-        label.clutter_text.line_wrap = true;
-        label.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;
-        label.add_style_class_name('ai-limits-notice');
-        item.add_child(label);
-        this._button.menu.addMenuItem(item);
+    // Accounts, limits and notes are plain widgets rather than menu items, and without the
+    // .popup-menu-item class: St marks widgets that take no input :insensitive, and the theme greys
+    // out the text of insensitive menu items.
+    _block(...children) {
+        const block = column({style_class: 'ai-limits-block'});
+        for (const child of children)
+            block.add_child(child);
+        return block;
     }
 
     _rebuildMenu() {
         this._clearMenu();
+        const menu = this._button.menu;
+        this._markShade(menu.box);
+        const section = new PopupMenu.PopupMenuSection();
+        menu.addMenuItem(section);
         if (this._notice)
-            this._info(this._notice);
+            section.box.add_child(this._block(this._wrap(this._label(this._notice, 'ai-limits-notice ai-limits-secondary'))));
         const accounts = this._state?.accounts ?? [];
         if (this._state && !accounts.length)
-            this._info('No accounts found. Configure accounts in ai-limits.');
+            section.box.add_child(this._block(this._label('No accounts found. Configure accounts in ai-limits.', 'ai-limits-secondary')));
+        if (accounts.some(account => account.limits.length))
+            section.box.add_child(this._block(this._columnTitles()));
+        const choices = new Map();
+        for (const account of accounts.filter(usable))
+            choices.set(account.provider, (choices.get(account.provider) ?? 0) + 1);
         accounts.forEach((account, index) => {
-            if (index)
-                this._button.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-            const header = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false});
-            header.add_style_class_name('ai-limits-head');
-            const details = column({x_expand: true, style_class: 'ai-limits-account'});
-            const title = new St.BoxLayout({style_class: 'ai-limits-title'});
-            title.add_child(this._label(glyph(account.provider), 'ai-limits-glyph'));
-            title.add_child(this._label(account.label, 'ai-limits-account-name'));
-            if (account.plan)
-                title.add_child(this._label(account.plan, 'ai-limits-plan'));
-            if (account.recommended) {
-                title.add_child(new St.Label({
-                    text: '★ most headroom', style_class: 'ai-limits-pick',
-                    x_expand: true, x_align: Clutter.ActorAlign.END, y_align: Clutter.ActorAlign.CENTER,
-                }));
-            }
-            details.add_child(title);
-            if (statusText(account, Date.now() / 1000)) {
-                const status = this._timeLabel(now => statusText(account, now),
-                    `ai-limits-status ai-limits-status-${account.status}`, true);
-                status.add_style_class_name('ai-limits-notice');
-                status.clutter_text.line_wrap = true;
-                status.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;
-                details.add_child(status);
-            }
-            header.add_child(details);
-            this._button.menu.addMenuItem(header);
-            let scope = null;
-            const forecasts = [];
-            const now = Date.now() / 1000;
-            for (const limit of account.limits) {
-                const parts = limitParts(account, limit);
-                this._addLimit(account, limit, parts, parts.scope !== scope);
-                scope = parts.scope;
-                const out = account.status === 'ok' ? runsOutAt(limit, now) : null;
-                if (out !== null)
-                    forecasts.push([limit, parts, out]);
-            }
-            for (const [limit, parts, out] of forecasts)
-                this._addForecast(account, limit, parts, out);
+            // a line between providers; accounts of the same provider stay together
+            if (index && accounts[index - 1].provider !== account.provider)
+                section.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+            section.box.add_child(this._account(account,
+                account.recommended === true && choices.get(account.provider) > 1));
         });
-        this._button.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+
         const generated = this._state?.generated_at;
-        for (const [title, callback, aside] of [
-            ['Refresh', () => this._refresh(), now => Number.isFinite(generated)
-                ? `updated ${age(generated, now)}` : 'not updated yet'],
-            ['Settings', () => this.openPreferences(), null],
-        ]) {
-            const item = new PopupMenu.PopupMenuItem(title);
-            if (aside) {
-                const label = this._timeLabel(aside, 'ai-limits-aside');
-                label.x_expand = true;
-                label.x_align = Clutter.ActorAlign.END;
-                item.add_child(label);
-            }
-            this._menuSignals.push([item, item.connect('activate', callback)]);
-            this._button.menu.addMenuItem(item);
+        const refresh = new PopupMenu.PopupMenuItem('Refresh');
+        const aside = this._timeLabel(now => this._request ? 'refreshing…'
+            : Number.isFinite(generated) ? `updated ${age(generated, now)}` : 'not updated yet',
+        'ai-limits-aside ai-limits-secondary');
+        aside.x_expand = true;
+        aside.x_align = Clutter.ActorAlign.END;
+        refresh.add_child(aside);
+        // Keep the menu open: the new numbers replace the old ones in place.
+        refresh.activate = () => {
+            this._refresh();
+            this._updateMenuTimes();
+        };
+        menu.addMenuItem(refresh);
+        const settings = new PopupMenu.PopupMenuItem('Settings');
+        this._menuSignals.push([settings, settings.connect('activate', () => this.openPreferences())]);
+        menu.addMenuItem(settings);
+    }
+
+    // The first cell of a row: which models and which window ("All models  5h"). One fixed-width box,
+    // so a limit without a known window can use its whole width for the name.
+    _names(scope = '', window = '', tone = '') {
+        const cell = new St.BoxLayout({style_class: 'ai-limits-names'});
+        if (!window) {
+            cell.add_child(new St.Label({text: scope, style_class: `ai-limits-scope-only ${tone}`,
+                x_expand: true, y_align: Clutter.ActorAlign.CENTER}));
+            return cell;
         }
+        cell.add_child(this._label(scope, `ai-limits-scope ${tone}`));
+        cell.add_child(this._label(window, `ai-limits-window ${tone || 'ai-limits-secondary'}`));
+        return cell;
     }
 
-    _addLimit(account, limit, parts, firstInScope) {
+    // Column titles above the first account, aligned with the limit rows.
+    _columnTitles() {
+        const row = new St.BoxLayout({style_class: 'ai-limits-row ai-limits-titles'});
+        row.add_child(this._names());
+        const legend = new St.BoxLayout({style_class: 'ai-limits-legend'});
+        legend.add_child(new St.Widget({style_class: 'ai-limits-tick ai-limits-legend-tick',
+            y_align: Clutter.ActorAlign.CENTER}));
+        legend.add_child(this._label('time passed', 'ai-limits-column-title ai-limits-tertiary'));
+        row.add_child(legend);
+        row.add_child(this._label('used', 'ai-limits-percent ai-limits-column-title ai-limits-tertiary'));
+        row.add_child(this._label('resets', 'ai-limits-reset ai-limits-column-title ai-limits-tertiary'));
+        return row;
+    }
+
+    _account(account, pick) {
         const now = Date.now() / 1000;
-        const level = severity(limit.used_percent);
-        const percent = `${limit.estimated ? '~' : ''}${Math.round(limit.used_percent)}%`;
-        const row = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false});
-        row.add_style_class_name('ai-limits-limit');
-        if (account.status === 'stale' || account.status === 'vpn_off')
-            row.add_style_class_name('ai-limits-stale');
-        else if (Math.round(limit.used_percent) === 0)
-            row.add_style_class_name('ai-limits-unused');
-        // the scope is written once per group; rows below it leave the cell empty
-        row.add_child(this._label(firstInScope ? parts.scope : '', 'ai-limits-scope'));
-        row.add_child(this._label(parts.window, 'ai-limits-window'));
-        row.add_child(this._meter(limit, now, level));
-        row.add_child(this._label(percent, `ai-limits-percent ${level}`));
-        const when = resetWhen(limit, now);
-        row.accessible_name = `${account.label}, ${parts.scope}${parts.window ? ` ${parts.window}` : ''}: ` +
-            `${percent} used${when ? `, resets ${when}` : ''}`;
-        row.add_child(this._timeLabel(at => resetWhen(limit, at), 'ai-limits-when'));
-        row.add_child(this._timeLabel(at => resetIn(limit, at), 'ai-limits-countdown'));
-        this._button.menu.addMenuItem(row);
+        const title = new St.BoxLayout({style_class: 'ai-limits-title'});
+        title.add_child(this._icon(account.provider, 'ai-limits-glyph'));
+        title.add_child(this._label(account.label, 'ai-limits-account-name'));
+        const plan = planText(account);
+        if (plan)
+            title.add_child(this._label(plan, 'ai-limits-plan ai-limits-secondary'));
+        if (pick) {
+            title.add_child(new St.Label({
+                text: '★ most room left', style_class: 'ai-limits-pick ai-limits-secondary',
+                x_expand: true, x_align: Clutter.ActorAlign.END, y_align: Clutter.ActorAlign.CENTER,
+            }));
+        }
+        const block = this._block(title);
+        if (statusText(account, now)) {
+            const tone = account.status === 'error' ? 'ai-limits-critical' : 'ai-limits-secondary';
+            block.add_child(this._wrap(this._timeLabel(at => statusText(account, at),
+                `ai-limits-status ${tone}`, true)));
+        }
+        let scope = null;
+        for (const limit of account.limits) {
+            const parts = limitParts(account, limit);
+            const out = account.status === 'ok' ? runsOutAt(limit, now) : null;
+            block.add_child(this._limitRow(account, limit, parts, parts.scope !== scope, out, now));
+            scope = parts.scope;
+            if (out !== null)
+                block.add_child(this._forecastRow(limit, out));
+        }
+        return block;
     }
 
-    // A note under the account's rows (not between them, which would split a scope group).
-    _addForecast(account, limit, parts, out) {
-        const span = WINDOW_ADJECTIVES[limit.window_minutes] ?? parts.window;
-        const name = String(limit.id ?? '').includes(':')
-            ? `the ${parts.scope} ${span} limit` : `the ${span} limit`;
-        const hint = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false});
-        hint.add_style_class_name('ai-limits-forecast-row');
-        const text = this._label('', 'ai-limits-forecast');
-        // the scope comes from the core and the time from the locale: escape both
-        text.clutter_text.set_markup(`At this pace ${GLib.markup_escape_text(name, -1)} runs out at <b>${
-            GLib.markup_escape_text(clock(out, Date.now() / 1000) ?? '', -1)}</b>, before it resets.`);
-        hint.add_child(text);
-        this._button.menu.addMenuItem(hint);
+    _limitRow(account, limit, parts, firstInScope, out, now) {
+        const stale = account.status === 'stale' || account.status === 'vpn_off';
+        const unused = Math.round(limit.used_percent) === 0;
+        // old numbers are shown, but without the colours that ask for attention
+        const tone = stale ? 'ai-limits-dim' : severity(limit.used_percent) || (out !== null ? 'ai-limits-ahead' : '');
+        const quiet = stale || unused ? 'ai-limits-tertiary' : 'ai-limits-secondary';
+        const percent = `${limit.estimated ? '~' : ''}${Math.round(limit.used_percent)}%`;
+        const row = new St.BoxLayout({style_class: 'ai-limits-row'});
+        // the scope is written once per group; rows below it leave that part empty
+        row.add_child(this._names(firstInScope || !parts.window ? parts.scope : '', parts.window,
+            stale ? 'ai-limits-tertiary' : ''));
+        row.add_child(this._meter(limit, now, tone));
+        row.add_child(this._label(percent, `ai-limits-percent ${tone === 'ai-limits-dim' || (!tone && unused)
+            ? 'ai-limits-tertiary' : tone}`));
+        row.add_child(this._timeLabel(at => resetText(limit, at), `ai-limits-reset ${quiet}`));
+        const reset = resetText(limit, now);
+        row.accessible_name = `${account.label}, ${parts.scope}${parts.window ? ` ${parts.window}` : ''}: ` +
+            `${percent} used${reset ? `, resets ${reset}` : ''}` +
+            `${out !== null ? ', on course to run out before the reset' : ''}`;
+        return row;
+    }
+
+    // A note right under the limit it is about, starting at the bar so the scope column stays clear.
+    _forecastRow(limit, out) {
+        const row = new St.BoxLayout({style_class: 'ai-limits-row ai-limits-forecast-row'});
+        row.add_child(this._names());
+        row.add_child(this._timeLabel(now => forecastMarkup(out, now),
+            `ai-limits-forecast ${severity(limit.used_percent) || 'ai-limits-ahead'}`, true));
+        return row;
     }
 
     // Usage bar with a tick at how much of the window has passed: fill past the tick = faster than even pace.
-    // Built from side-by-side segments (fill, empty, tick) rather than overlapping layers. Sizes are CSS px
-    // (TRACK_WIDTH matches the stylesheet) so St applies HiDPI scaling; resizing from an allocation
-    // handler would trigger relayout loops.
-    _meter(limit, now, level) {
+    // Built from side-by-side segments (fill, empty, gap, tick) rather than overlapping layers. Sizes are
+    // CSS px (TRACK_WIDTH matches the stylesheet) so St applies HiDPI scaling; resizing from an
+    // allocation handler would trigger relayout loops.
+    _meter(limit, now, tone) {
         const meter = new St.BoxLayout({style_class: 'ai-limits-meter', y_align: Clutter.ActorAlign.CENTER});
         const used = Math.round(TRACK_WIDTH * Math.min(1, Math.max(0, limit.used_percent / 100)));
         const passed = elapsed(limit, now);
         const tick = passed === null ? null
             : Math.min(TRACK_WIDTH - TICK_WIDTH, Math.round(TRACK_WIDTH * passed));
-        const cuts = [...new Set([0, used, TRACK_WIDTH, ...(tick === null ? [] : [tick, tick + TICK_WIDTH])])]
-            .sort((a, b) => a - b);
+        const gapFrom = tick === null ? null : Math.max(0, tick - TICK_GAP);
+        const gapTo = tick === null ? null : Math.min(TRACK_WIDTH, tick + TICK_WIDTH + TICK_GAP);
+        const cuts = [...new Set([0, used, TRACK_WIDTH,
+            ...(tick === null ? [] : [gapFrom, tick, tick + TICK_WIDTH, gapTo])])].sort((a, b) => a - b);
         const pieces = [];
         for (let i = 1; i < cuts.length; i++) {
             const [from, to] = [cuts[i - 1], cuts[i]];
-            if (to > from)
-                pieces.push({from, to, kind: from === tick ? 'tick' : to <= used ? 'fill' : 'track'});
+            if (to <= from)
+                continue;
+            const kind = from === tick ? 'tick'
+                : tick !== null && from >= gapFrom && to <= gapTo ? 'gap'
+                    : to <= used ? 'fill' : 'track';
+            pieces.push({from, to, kind});
         }
         pieces.forEach(({from, to, kind}, index) => {
-            const classes = [kind === 'tick' ? 'ai-limits-tick'
-                : kind === 'fill' ? `ai-limits-fill ${level}` : 'ai-limits-track'];
-            if (kind === 'fill' && tick !== null && from >= tick)
-                classes.push('ai-limits-ahead'); // used faster than an even pace
-            if (kind !== 'tick') {
-                // round only the outer ends of the bar, and the fill's end where it meets the empty track
-                const first = index === 0 || pieces[index - 1].kind === 'tick';
-                const last = index === pieces.length - 1 || pieces[index + 1].kind === 'tick';
-                if (first && from === 0)
+            const classes = [{tick: 'ai-limits-tick', gap: 'ai-limits-gap', fill: `ai-limits-fill ${tone}`,
+                track: 'ai-limits-track'}[kind]];
+            if (kind === 'fill' || kind === 'track') {
+                // round only the bar's outer ends; cuts at the tick and between fill and track stay square
+                const outer = neighbour => !neighbour || neighbour.kind === 'tick' || neighbour.kind === 'gap';
+                if (from === 0 && outer(pieces[index - 1]))
                     classes.push('ai-limits-start');
-                if ((last && to === TRACK_WIDTH) || (kind === 'fill' && to === used))
+                if (to === TRACK_WIDTH && outer(pieces[index + 1]))
                     classes.push('ai-limits-end');
             }
             meter.add_child(new St.Widget({

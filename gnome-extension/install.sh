@@ -39,10 +39,11 @@ fi
 
 # Check before copying; settings are only touched with --enable.
 glib-compile-schemas --strict --dry-run "$source_dir/schemas"
-mkdir -p -- "$destination/schemas"
+mkdir -p -- "$destination/schemas" "$destination/icons"
 for file in metadata.json extension.js prefs.js stylesheet.css; do
     install -m 644 -- "$source_dir/$file" "$destination/$file"
 done
+install -m 644 -- "$source_dir"/icons/*-symbolic.svg "$destination/icons/"
 install -m 644 -- "$source_dir/schemas/org.gnome.shell.extensions.ai-limits.gschema.xml" "$destination/schemas/"
 glib-compile-schemas --strict "$destination/schemas"
 
@@ -70,5 +71,7 @@ else
 fi
 printf '%s\n' \
     'After updating its code, log out and back in to load the new JavaScript.' \
+    'Until then the menu may look broken: on screen unlock Shell re-reads the new stylesheet' \
+    'but keeps running the old code.' \
     "Settings: gnome-extensions prefs $uuid" \
     'Install the core separately if needed: uv tool install ai-limits (or pipx)'

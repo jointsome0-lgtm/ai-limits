@@ -11,7 +11,7 @@ in the GNOME top bar.
  Claude Max
    Session (5h)   ████░░░░░░  42%   ↻ 18:30 (in 2h10m)
    Week           ██░░░░░░░░  18%   ↻ Sun 19:00 (in 5d3h)
- Codex · personal                         ★ most headroom
+ Codex · personal                       ★ most room left
    Week           ██░░░░░░░░  19%   ↻ Thu 12:00 (in 2d21h)
  Codex · work                             updated 8h ago
    Week           █████████░  91%   ↻ 18:00 (in 2h)
@@ -125,7 +125,7 @@ login between subscriptions fills the right account; the cache stores only a has
 With a single Gemini account `email` can be left out.
 
 Without a config file, `~/.claude`, `~/.codex` and `~/.gemini/antigravity-cli` are picked up automatically. With two or more
-accounts of one provider, the one with the most headroom gets a ★ and is the one shown in the panel.
+accounts of one provider, the one with the most room left gets a ★ and is the one shown in the panel.
 
 ## Network mode (Linux only, behind a VPN)
 

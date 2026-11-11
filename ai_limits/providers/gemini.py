@@ -21,8 +21,8 @@ from . import read_json, write_json
 # window by a word in the bucket id ("gemini-weekly" -> 7 days): (word, limit id, label, short label, minutes)
 WINDOWS = (("weekly", "7d", "Week", "week", 10080), ("daily", "1d", "Day", "day", 1440),
            ("5h", "5h", "Session (5h)", "5h", 300), ("hourly", "1h", "Hour", "hour", 60))
-# other prefixes agy uses for buckets; "3p" = third-party models in agy (Claude, GPT-OSS)
-NAMES = {"3p": "Third-party"}
+# other prefixes agy uses for buckets; "3p" = the third-party models in agy (Claude, GPT-OSS)
+NAMES = {"3p": "Other models"}
 ANY_ACCOUNT = "any"  # tap key when agy did not report an email
 
 
@@ -102,7 +102,7 @@ def _limit(bucket: str, q: dict, captured: int | None) -> Limit | None:
     for word, lid, label, short, minutes in WINDOWS:
         if word in name.lower():
             rest = re.sub(rf"[-_ ]*{word}[-_ ]*", " ", name, flags=re.I).strip()
-            if rest:  # e.g. "3p-weekly" -> "Third-party (week)", "gemini-pro-daily" -> "Pro (day)"
+            if rest:  # e.g. "3p-weekly" -> "Other models (week)", "gemini-pro-daily" -> "Pro (day)"
                 pretty = NAMES.get(rest.lower()) or rest.replace("-", " ").replace("_", " ").title()
                 return Limit(f"{lid}:{rest.lower()}", f"{pretty} ({short})", used, resets, minutes)
             return Limit(lid, label, used, resets, minutes)

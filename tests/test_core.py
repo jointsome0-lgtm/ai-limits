@@ -406,8 +406,8 @@ class GeminiTest(Env):
         gemini.write_tap({"quota": {"3p-5h": q, "3p-weekly": q, "gemini-5h": q, "gemini-weekly": q}}, NOW)
         acc = build_state(self.cfg(AccountConfig("gemini", "G", "/x")), NOW)["accounts"][0]
         self.assertEqual([(lim["id"], lim["label"]) for lim in acc["limits"]],
-                         [("5h", "Session (5h)"), ("7d", "Week"), ("5h:3p", "Third-party (5h)"),
-                          ("7d:3p", "Third-party (week)")])
+                         [("5h", "Session (5h)"), ("7d", "Week"), ("5h:3p", "Other models (5h)"),
+                          ("7d:3p", "Other models (week)")])
 
     def test_unknown_email_has_no_data(self):
         gemini.write_tap(agy_input("a@gmail.com", 0.5), NOW)

@@ -109,7 +109,7 @@ def _show(state: dict, color: bool) -> None:
     for acc in state["accounts"]:
         head = acc["label"] + (f" {dim}{acc['plan']}{reset}" if acc["plan"] else "")
         if acc["recommended"]:
-            head += "  ★ most headroom"
+            head += "  ★ most room left"
         if acc["status"] == "stale" and acc["updated_at"]:
             head += f"  {dim}[updated {format_duration(now - acc['updated_at'])} ago]{reset}"
         elif acc["status"] != "ok":

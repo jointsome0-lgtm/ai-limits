@@ -1,56 +1,73 @@
-/* Inherit the panel/menu font and foreground; colour only marks warnings. */
+/* St supports neither opacity nor currentColor, so muted and status text use fixed colours: the first
+   set is for dark surfaces (the panel, dark menus), the .ai-limits-on-light set for light menus.
+   extension.js adds .ai-limits-on-light where the theme draws dark text. Contrast >= 4.5:1 for text
+   and >= 3:1 for bars on Yaru's #1d1d1d / #fafafa menus. */
+
+/* panel */
 .ai-limits-panel { spacing: 12px; }
+.ai-limits-chip { spacing: 5px; }
+.ai-limits-chip-icon { icon-size: 16px; }
+.ai-limits-letter { font-weight: bold; }
+
+/* text tones */
+.ai-limits-secondary { color: rgba(255, 255, 255, 0.65); }
+.ai-limits-tertiary { color: rgba(255, 255, 255, 0.46); }
+.ai-limits-ahead { color: #62a0ea; }
 .ai-limits-warning { color: #e5a50a; }
-.ai-limits-critical { color: #ed333b; }
-.ai-limits-stale { opacity: 0.55; }
-/* panel chip when a limit is on course to run out before its reset (same blue as the menu) */
-.ai-limits-chip.ai-limits-ahead { color: #62a0ea; }
-.ai-limits-muted { opacity: 0.65; }
+.ai-limits-critical { color: #f66151; }
+.ai-limits-on-light .ai-limits-secondary { color: rgba(0, 0, 0, 0.62); }
+.ai-limits-on-light .ai-limits-tertiary { color: rgba(0, 0, 0, 0.53); }
+.ai-limits-on-light .ai-limits-ahead { color: #1c71d8; }
+.ai-limits-on-light .ai-limits-warning { color: #9c6e03; }
+.ai-limits-on-light .ai-limits-critical { color: #c01c28; }
+
+/* menu blocks: side padding as in the theme's menu items (Yaru and Adwaita: 12px) */
+.ai-limits-block { spacing: 0; padding: 7px 12px; }
+.ai-limits-notice { max-width: 34em; }
 
 /* account header */
-.ai-limits-head { padding-top: 8px; padding-bottom: 2px; }
-.ai-limits-account { spacing: 2px; }
 .ai-limits-title { spacing: 8px; }
-.ai-limits-glyph { opacity: 0.7; }
+.ai-limits-glyph { icon-size: 16px; }
 .ai-limits-account-name { font-weight: bold; }
-.ai-limits-plan { opacity: 0.6; }
-.ai-limits-pick { opacity: 0.75; font-size: 0.9em; padding-left: 16px; }
-.ai-limits-notice { max-width: 36em; }
-.ai-limits-status { font-size: 0.9em; opacity: 0.75; }
-.ai-limits-status-error { color: #ed333b; opacity: 1; }
+.ai-limits-pick { font-size: 0.9em; padding-left: 16px; }
+.ai-limits-status { padding-left: 24px; padding-top: 3px; font-size: 0.9em; max-width: 31em; }
 
-/* one limit: scope | window | meter | percent | reset time | countdown */
-.ai-limits-limit { spacing: 12px; padding-top: 4px; padding-bottom: 4px; }
-.ai-limits-unused { opacity: 0.5; }
-.ai-limits-scope { width: 6.6em; }
-.ai-limits-window { width: 2.8em; opacity: 0.6; }
+/* one limit, indented under the account name (icon 16px + 8px):
+   [scope window] | meter | percent used | reset */
+.ai-limits-row { spacing: 12px; padding-left: 24px; padding-top: 6px; }
+.ai-limits-names { width: 10.4em; }
+.ai-limits-scope { width: 7.4em; }
+.ai-limits-window { width: 3em; }
 .ai-limits-percent { width: 3em; text-align: right; font-weight: bold; font-feature-settings: "tnum"; }
-.ai-limits-when { width: 5.2em; font-feature-settings: "tnum"; }
-.ai-limits-countdown { width: 5em; text-align: right; opacity: 0.55; font-feature-settings: "tnum"; }
+.ai-limits-reset { width: 5.4em; font-feature-settings: "tnum"; }
 
+/* column titles above the first account */
+.ai-limits-titles { padding-top: 0; }
+.ai-limits-column-title { font-size: 0.85em; font-weight: normal; }
+.ai-limits-legend { width: 150px; spacing: 6px; }
+.ai-limits-tick.ai-limits-legend-tick { width: 2px; height: 11px; }
+
+/* the note under a limit that is on course to run out before its reset */
+.ai-limits-forecast-row { padding-top: 2px; }
+.ai-limits-forecast { font-size: 0.9em; }
+
+/* usage bar: track, fill, a tick at the time passed with a 1px gap on each side */
 .ai-limits-meter { width: 150px; height: 14px; spacing: 0; }
-.ai-limits-track {
-    height: 6px;
-    background-color: rgba(128, 128, 128, 0.22);
-}
-.ai-limits-fill {
-    height: 6px;
-    background-color: #9a9996;
-}
-/* the part used faster than an even pace; blue reads on light and dark menus */
+.ai-limits-track { height: 6px; background-color: rgba(128, 128, 128, 0.25); }
+.ai-limits-gap { height: 6px; }
+.ai-limits-fill { height: 6px; background-color: #9a9996; }
+.ai-limits-on-light .ai-limits-fill { background-color: #77767b; }
 .ai-limits-fill.ai-limits-ahead { background-color: #3584e4; }
 .ai-limits-fill.ai-limits-warning { background-color: #e5a50a; }
 .ai-limits-fill.ai-limits-critical { background-color: #ed333b; }
+.ai-limits-fill.ai-limits-dim { background-color: rgba(154, 153, 150, 0.45); }
+.ai-limits-on-light .ai-limits-fill.ai-limits-warning { background-color: #b97c00; }
+.ai-limits-on-light .ai-limits-fill.ai-limits-dim { background-color: rgba(119, 118, 123, 0.4); }
 .ai-limits-start { border-radius: 3px 0 0 3px; }
 .ai-limits-end { border-radius: 0 3px 3px 0; }
 .ai-limits-start.ai-limits-end { border-radius: 3px; }
-/* where usage would be if spread evenly over the window */
-.ai-limits-tick {
-    height: 14px;
-    border-radius: 1px;
-    background-color: rgba(128, 128, 128, 0.95);
-}
+.ai-limits-tick { width: 2px; height: 14px; border-radius: 1px; background-color: #c0bfbc; }
+.ai-limits-on-light .ai-limits-tick { background-color: #5e5c64; }
 
-.ai-limits-forecast-row { padding-top: 2px; }
-.ai-limits-forecast { font-size: 0.9em; opacity: 0.85; }
-.ai-limits-aside { opacity: 0.55; font-size: 0.9em; }
+/* footer */
+.ai-limits-aside { font-size: 0.9em; }
