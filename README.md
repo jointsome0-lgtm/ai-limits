@@ -152,6 +152,10 @@ Releases go to PyPI through Trusted Publishing: run the **Build or publish to Py
 The PyPI publisher is owner `jointsome0-lgtm`, repository `ai-limits`, workflow `publish.yml`,
 environment `pypi`. No API token is needed.
 
+A release, in order: bump the version in `pyproject.toml` and `ai_limits/__init__.py`, push to `main`,
+run the workflow with `publish`, then tag that commit `vX.Y.Z` and publish a GitHub release titled
+`ai-limits X.Y.Z` with notes on what changed, what was checked and what was not.
+
 The GNOME extension only runs `ai-limits json` and draws the result; adding a provider means one
 module in `ai_limits/providers/`.
 
