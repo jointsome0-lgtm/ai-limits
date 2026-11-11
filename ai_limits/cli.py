@@ -105,6 +105,7 @@ def _show(state: dict, color: bool) -> None:
     now = int(time.time())
     if not state["accounts"]:
         print("No accounts found (no ~/.claude, ~/.codex or ~/.gemini/antigravity-cli). See ~/.config/ai-limits/config.toml.")
+    width = max([16] + [len(lim["label"]) for acc in state["accounts"] for lim in acc["limits"]])
     for acc in state["accounts"]:
         head = acc["label"] + (f" {dim}{acc['plan']}{reset}" if acc["plan"] else "")
         if acc["recommended"]:
@@ -117,7 +118,7 @@ def _show(state: dict, color: bool) -> None:
         for lim in acc["limits"]:
             pct = f"{'~' if lim['estimated'] else ''}{lim['used_percent']:.0f}%"
             bar = _bar(lim["used_percent"])
-            print(f"  {lim['label']:16} {bar} {pct:>5}  {dim}{_reset_text(lim['resets_at'], now)}{reset}")
+            print(f"  {lim['label']:{width}} {bar} {pct:>5}  {dim}{_reset_text(lim['resets_at'], now)}{reset}")
     net = state["network"]
     print(f"{dim}network: {'on via ' + net['interface'] if net['enabled'] else 'off (offline mode)'}{reset}")
 

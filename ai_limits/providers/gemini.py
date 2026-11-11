@@ -18,8 +18,11 @@ from ..config import Config, cache_dir
 from ..model import AccountConfig, Limit, Snapshot, home_key, percent, to_epoch
 from . import read_json, write_json
 
-# window length by a word in the bucket id ("gemini-weekly" -> 7 days)
-WINDOWS = (("weekly", "7d", "Week", 10080), ("daily", "1d", "Day", 1440), ("hourly", "1h", "Hour", 60))
+# window by a word in the bucket id ("gemini-weekly" -> 7 days): (word, limit id, label, short label, minutes)
+WINDOWS = (("weekly", "7d", "Week", "week", 10080), ("daily", "1d", "Day", "day", 1440),
+           ("5h", "5h", "Session (5h)", "5h", 300), ("hourly", "1h", "Hour", "hour", 60))
+# other prefixes agy uses for buckets; "3p" = third-party models in agy (Claude, GPT-OSS)
+NAMES = {"3p": "Third-party"}
 ANY_ACCOUNT = "any"  # tap key when agy did not report an email
 
 
@@ -79,7 +82,8 @@ def _limits(quota, captured: int | None) -> list[Limit]:
         lim = _limit(bucket, q, captured) if isinstance(bucket, str) and isinstance(q, dict) else None
         if lim is not None:
             limits.append(lim)
-    return sorted(limits, key=lambda lim: (lim.window_minutes or 0, lim.id))
+    # Gemini's own limits first (like Claude: session, week), then third-party / other buckets
+    return sorted(limits, key=lambda lim: (":" in lim.id, lim.window_minutes or 0, lim.id))
 
 
 def _limit(bucket: str, q: dict, captured: int | None) -> Limit | None:
@@ -95,12 +99,12 @@ def _limit(bucket: str, q: dict, captured: int | None) -> Limit | None:
         resets = captured + int(secs)
 
     name = re.sub(r"^gemini[-_ ]*", "", bucket, flags=re.I)
-    for word, lid, label, minutes in WINDOWS:
+    for word, lid, label, short, minutes in WINDOWS:
         if word in name.lower():
             rest = re.sub(rf"[-_ ]*{word}[-_ ]*", " ", name, flags=re.I).strip()
-            if rest:  # e.g. "gemini-pro-weekly" -> "Pro (week)"
-                return Limit(f"{lid}:{rest.lower()}", f"{rest.replace('-', ' ').title()} ({label.lower()})",
-                             used, resets, minutes)
+            if rest:  # e.g. "3p-weekly" -> "Third-party (week)", "gemini-pro-daily" -> "Pro (day)"
+                pretty = NAMES.get(rest.lower()) or rest.replace("-", " ").replace("_", " ").title()
+                return Limit(f"{lid}:{rest.lower()}", f"{pretty} ({short})", used, resets, minutes)
             return Limit(lid, label, used, resets, minutes)
     label = re.sub(r"[-_]+", " ", name or bucket).strip().capitalize() or "Limit"
     return Limit(bucket, label, used, resets, None)
